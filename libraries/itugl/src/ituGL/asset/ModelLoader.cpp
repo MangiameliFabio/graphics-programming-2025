@@ -93,6 +93,22 @@ Model ModelLoader::Load(const char* path)
         for (unsigned int meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex)
         {
             aiMesh& meshData = *scene->mMeshes[meshIndex];
+
+            std::vector<glm::vec3> triangleVertices;
+
+            for (unsigned int i = 0; i < meshData.mNumFaces; i++) {
+                aiFace face = meshData.mFaces[i];
+                // Ensure the face is a triangle
+                if (face.mNumIndices == 3) {
+                    for (unsigned int j = 0; j < 3; j++) {
+                        aiVector3D vertex = meshData.mVertices[face.mIndices[j]];
+                        triangleVertices.emplace_back(vertex.x, vertex.y, vertex.z);
+                    }
+                }
+            }
+
+            mesh.SetTriangleData(triangleVertices);
+
             GenerateSubmesh(mesh, meshData);
 
             std::shared_ptr<Material> material = m_referenceMaterial;

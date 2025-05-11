@@ -1,4 +1,4 @@
-#include "RaytracingApplication.h"
+#include "MeshRaytracingApplication.h"
 
 #include <ituGL/asset/ShaderLoader.h>
 #include <ituGL/camera/Camera.h>
@@ -14,7 +14,11 @@
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/euler_angles.hpp>
 
-RaytracingApplication::RaytracingApplication()
+#include "ituGL/asset/ModelLoader.h"
+#include "ituGL/geometry/ShaderStorageBufferObject.h"
+#include "ituGL/scene/SceneModel.h"
+
+MeshRaytracingApplication::MeshRaytracingApplication()
     : Application(1024, 1024, "Ray-tracing demo")
     , m_renderer(GetDevice())
     , m_frameCount(0)
@@ -23,7 +27,7 @@ RaytracingApplication::RaytracingApplication()
 {
 }
 
-void RaytracingApplication::Initialize()
+void MeshRaytracingApplication::Initialize()
 {
     Application::Initialize();
 
@@ -34,9 +38,38 @@ void RaytracingApplication::Initialize()
     InitializeMaterial();
     InitializeFramebuffer();
     InitializeRenderer();
+
+    // Configure loader
+    ModelLoader loader(m_material);
+
+    std::shared_ptr<Model> boxModel = loader.LoadShared("models/Box.obj");
+    m_scene.AddSceneNode(std::make_shared<SceneModel>("box model", boxModel));
+
+    Mesh* mesh = &boxModel->GetMesh();
+    std::vector<glm::vec3> triangleVertices = mesh->GetTriangleData();
+
+	GLuint ssbo;
+
+    glGenBuffers(1, &ssbo);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, triangleVertices.size() * sizeof(glm::vec3), triangleVertices.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+    //ShaderStorageBufferObject ssbo;
+    //ssbo.Bind();
+    //ssbo.AllocateData(std::span<const std::byte>(
+    //    reinterpret_cast<const std::byte*>(triangleVertices.data()),
+    //    triangleVertices.size() * sizeof(glm::vec3)
+    //), BufferObject::Usage::StaticDraw);
+    //const GLuint handle = ssbo.GetHandle();
+
+    //// Bind SSBO to binding point 0
+    //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, handle);
+
+    //ssbo.Unbind();
 }
 
-void RaytracingApplication::Update()
+void MeshRaytracingApplication::Update()
 {
     Application::Update();
 
@@ -63,7 +96,7 @@ void RaytracingApplication::Update()
     m_material->SetUniformValue("FrameCount", ++m_frameCount);
 }
 
-void RaytracingApplication::Render()
+void MeshRaytracingApplication::Render()
 {
     Application::Render();
 
@@ -76,7 +109,7 @@ void RaytracingApplication::Render()
     RenderGUI();
 }
 
-void RaytracingApplication::Cleanup()
+void MeshRaytracingApplication::Cleanup()
 {
     // Cleanup DearImGUI
     m_imGui.Cleanup();
@@ -84,12 +117,12 @@ void RaytracingApplication::Cleanup()
     Application::Cleanup();
 }
 
-void RaytracingApplication::InvalidateScene()
+void MeshRaytracingApplication::InvalidateScene()
 {
     m_frameCount = 0;
 }
 
-void RaytracingApplication::InitializeCamera()
+void MeshRaytracingApplication::InitializeCamera()
 {
     // Create the main camera
     std::shared_ptr<Camera> camera = std::make_shared<Camera>();
@@ -104,9 +137,9 @@ void RaytracingApplication::InitializeCamera()
     m_cameraController.SetCamera(sceneCamera);
 }
 
-void RaytracingApplication::InitializeMaterial()
+void MeshRaytracingApplication::InitializeMaterial()
 {
-    m_material = CreateRaytracingMaterial("shaders/exercise11.glsl");
+    m_material = CreateRaytracingMaterial("shaders/intersection_checks.glsl");
 
     // Initialize material uniforms
     m_material->SetUniformValue("SphereCenter", m_sphereCenter);
@@ -124,7 +157,7 @@ void RaytracingApplication::InitializeMaterial()
     m_material->SetBlendParams(Material::BlendParam::SourceAlpha, Material::BlendParam::OneMinusSourceAlpha);
 }
 
-void RaytracingApplication::InitializeFramebuffer()
+void MeshRaytracingApplication::InitializeFramebuffer()
 {
     int width, height;
     GetMainWindow().GetDimensions(width, height);
@@ -145,7 +178,7 @@ void RaytracingApplication::InitializeFramebuffer()
     FramebufferObject::Unbind();
 }
 
-void RaytracingApplication::InitializeRenderer()
+void MeshRaytracingApplication::InitializeRenderer()
 {
     m_renderer.AddRenderPass(std::make_unique<PostFXRenderPass>(m_material, m_sceneFramebuffer));
 
@@ -154,7 +187,7 @@ void RaytracingApplication::InitializeRenderer()
     m_renderer.AddRenderPass(std::make_unique<PostFXRenderPass>(copyMaterial, m_renderer.GetDefaultFramebuffer()));
 }
 
-std::shared_ptr<Material> RaytracingApplication::CreateRaytracingMaterial(const char* fragmentShaderPath)
+std::shared_ptr<Material> MeshRaytracingApplication::CreateRaytracingMaterial(const char* fragmentShaderPath)
 {
     // We could keep this vertex shader and reuse it, but it looks simpler this way
     std::vector<const char*> vertexShaderPaths;
@@ -177,11 +210,11 @@ std::shared_ptr<Material> RaytracingApplication::CreateRaytracingMaterial(const 
 
     // Create material
     std::shared_ptr<Material> material = std::make_shared<Material>(shaderProgramPtr);
-
+    
     return material;
 }
 
-std::shared_ptr<Material> RaytracingApplication::CreateCopyMaterial()
+std::shared_ptr<Material> MeshRaytracingApplication::CreateCopyMaterial()
 {
     std::vector<const char*> vertexShaderPaths;
     vertexShaderPaths.push_back("shaders/version330.glsl");
@@ -203,9 +236,9 @@ std::shared_ptr<Material> RaytracingApplication::CreateCopyMaterial()
     return material;
 }
 
-void RaytracingApplication::RenderGUI()
+void MeshRaytracingApplication::RenderGUI()
 {
-    m_imGui.BeginFrame();
+    /*m_imGui.BeginFrame();
 
     bool changed = false;
 
@@ -247,5 +280,5 @@ void RaytracingApplication::RenderGUI()
         InvalidateScene();
     }
 
-    m_imGui.EndFrame();
+    m_imGui.EndFrame();*/
 }

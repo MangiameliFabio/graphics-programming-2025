@@ -13,7 +13,8 @@ public:
         ArrayBuffer = GL_ARRAY_BUFFER,
         // Element Buffer Object
         ElementArrayBuffer = GL_ELEMENT_ARRAY_BUFFER,
-        // TODO: There are more types, add them when they are supported
+        // Shader Storage Buffer Object
+        ShaderStorageBufferObject = GL_SHADER_STORAGE_BUFFER,
     };
 
     // Usage: How the buffer will be used

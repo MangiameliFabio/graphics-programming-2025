@@ -1,5 +1,4 @@
 #include "MeshRaytracingApplication.h"
-#include "../RayTracingProject/MeshRaytracingApplication.h"
 
 int main()
 {

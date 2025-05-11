@@ -31,11 +31,11 @@ public:
     // Binding = Setting this object as the current one, so we can perform operations on it without passing it as an argument every time
     // Each type of object will use a different function to Bind, so we leave it as a pure virtual function
     virtual void Bind() const = 0;
-
-protected:
     // Give access to derived classes to modify the handle
     inline Handle& GetHandle() { return m_handle; }
 
+
+protected:
 #ifndef NDEBUG
     // Check if this Object is currently bound
     virtual bool IsBound() const { return false; }
