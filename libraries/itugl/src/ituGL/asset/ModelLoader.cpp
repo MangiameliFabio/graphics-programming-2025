@@ -85,42 +85,47 @@ Model ModelLoader::Load(const char* path)
     m_baseFolder = path;
     m_baseFolder.resize(m_baseFolder.rfind('/') + 1);
 
-    // If the file was loaded, load all the meshes as submeshes
-    if (scene)
-    {
-        model.SetMesh(std::make_shared<Mesh>());
-        Mesh& mesh = model.GetMesh();
-        for (unsigned int meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex)
-        {
-            aiMesh& meshData = *scene->mMeshes[meshIndex];
-
-            std::vector<glm::vec3> triangleVertices;
-
-            for (unsigned int i = 0; i < meshData.mNumFaces; i++) {
-                aiFace face = meshData.mFaces[i];
-                // Ensure the face is a triangle
-                if (face.mNumIndices == 3) {
-                    for (unsigned int j = 0; j < 3; j++) {
-                        aiVector3D vertex = meshData.mVertices[face.mIndices[j]];
-                        triangleVertices.emplace_back(vertex.x, vertex.y, vertex.z);
-                    }
-                }
-            }
-
-            mesh.SetTriangleData(triangleVertices);
-
-            GenerateSubmesh(mesh, meshData);
-
-            std::shared_ptr<Material> material = m_referenceMaterial;
-            if (m_createMaterials)
-            {
-                // Create a new material with the material data
-                material = GenerateMaterial(*scene->mMaterials[meshData.mMaterialIndex]);
-            }
-            model.AddMaterial(material);
-        }
+    if (!scene || scene->mNumMeshes == 0) {
+        std::cerr << "Failed to load model or no meshes found in: " << path << "\n";
+        return Model();  // Return an empty/default model
     }
 
+    model.SetMesh(std::make_shared<Mesh>());
+    Mesh& mesh = model.GetMesh();
+    for (unsigned int meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex)
+    {
+        aiMesh& meshData = *scene->mMeshes[meshIndex];
+        if (!meshData.HasPositions()) continue;
+
+        std::vector<glm::vec4> triangleVertices;
+
+        for (unsigned int i = 0; i < meshData.mNumFaces; i++) {
+            aiFace face = meshData.mFaces[i];
+            // Ensure the face is a triangle
+            if (face.mNumIndices == 3) {
+
+                for (unsigned int j = 0; j < 3; j++) {
+                    aiVector3D vertex = meshData.mVertices[face.mIndices[j]];
+                    triangleVertices.emplace_back(vertex.x, vertex.y, vertex.z, 0.f);
+                    printf("Vertex: %f, %f, %f \n", vertex.x, vertex.y, vertex.z);
+                }
+            }
+        }
+
+        printf("---------------------------------------------------\n");
+
+        mesh.SetTriangleData(triangleVertices);
+
+        GenerateSubmesh(mesh, meshData);
+
+        std::shared_ptr<Material> material = m_referenceMaterial;
+        if (m_createMaterials)
+        {
+            // Create a new material with the material data
+            material = GenerateMaterial(*scene->mMaterials[meshData.mMaterialIndex]);
+        }
+        model.AddMaterial(material);
+    }
     return model;
 }
 

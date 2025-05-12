@@ -1,6 +1,6 @@
 
-layout(std430, binding = 0) buffer Triangles {
-    vec3 triangles[];
+layout(binding = 0, std430) readonly buffer Triangles {
+    vec4 triangles[];
 };
 
 // Test intersection between a ray and a sphere
@@ -99,11 +99,10 @@ bool RayTriangleIntersection( vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, inout
     float v =   d*dot(  q, v1v0 );
     float t =   d*dot( -n, rov0 );
 
-	if (u<0.0 || v<0.0 || (u+v)>1.0) {
-		return false;
-	}
-	distance = t;
+	if (u < 0.0 || v < 0.0 || (u + v) > 1.0) return false;
+    if (t < 0.0) return false;
 
+	distance = t;
     return true;
 }
 
@@ -114,29 +113,30 @@ bool RayMeshIntersection(Ray ray, mat4 matrix, inout float distance, inout vec3 
 	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
 
 	bool hit = false;
-	float closestT = 1e20;
 
 	for (int i = 0; i < triangles.length(); i += 3) {
-        vec3 v0 = triangles[i];
-        vec3 v1 = triangles[i + 1];
-        vec3 v2 = triangles[i + 2];
+        vec3 v0 = triangles[i].xyz;
+        vec3 v1 = triangles[i + 1].xyz;
+        vec3 v2 = triangles[i + 2].xyz;
 
 		float t;
         if (RayTriangleIntersection(ray.point, ray.direction, v0.xyz, v1.xyz, v2.xyz, t)) {
-            if (t < closestT) {
-                closestT = t;
+            if (t < distance) {
+                distance = t;
                 hit = true;
 
 				vec3 edge1 = v1.xyz - v0.xyz;
 				vec3 edge2 = v2.xyz - v0.xyz;
-				normal = -normalize(cross(edge1, edge2));
+				normal = cross(edge1, edge2);
             }
         }
     }
 
-    if (hit) {
-        distance = closestT;
-    }
+	if (hit)
+	{
+		normal = (matrix * vec4(normal, 0)).xyz;
+		normalize(normal);
+	}
 
 	return hit;
 }

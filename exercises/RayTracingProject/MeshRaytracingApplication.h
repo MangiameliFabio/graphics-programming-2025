@@ -6,6 +6,7 @@
 #include <ituGL/camera/CameraController.h>
 #include <ituGL/utils/DearImGui.h>
 
+#include "ituGL/geometry/ShaderStorageBufferObject.h"
 #include "ituGL/scene/Scene.h"
 
 class Material;
@@ -49,6 +50,9 @@ private:
     // World matrix for cube
     glm::mat4 m_boxMatrix;
 
+    // World matrix for mesh
+	glm::mat4 m_meshMatrix;
+
     // Camera controller
     CameraController m_cameraController;
 
@@ -64,6 +68,8 @@ private:
 
     // Default material
     std::shared_ptr<Material> m_defaultMaterial;
+
+    ShaderStorageBufferObject m_ssbo;
 
     // Global scene
     Scene m_scene;

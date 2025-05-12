@@ -113,8 +113,8 @@ public:
     inline const VertexArrayObject& GetSubmeshVertexArray(unsigned int submeshIndex) const { return m_vaos[m_submeshes[submeshIndex].vaoIndex]; }
     inline const Drawcall& GetSubmeshDrawcall(unsigned int submeshIndex) const { return m_submeshes[submeshIndex].drawcall; }
 
-    inline const std::vector<glm::vec3>& GetTriangleData() const { return m_triangleData; }
-    inline void SetTriangleData(const std::vector<glm::vec3>& data) { m_triangleData = data; }
+    inline const std::vector<glm::vec4>& GetTriangleData() const { return m_triangleData; }
+    inline void SetTriangleData(const std::vector<glm::vec4>& data) { m_triangleData = data; }
 
     // Draws a submesh
     void DrawSubmesh(int submeshIndex) const;
@@ -155,7 +155,7 @@ private:
     // Submeshes contained in this mesh
     std::vector<Submesh> m_submeshes;
 
-    std::vector<glm::vec3> m_triangleData;
+    std::vector<glm::vec4> m_triangleData;
 };
 
 template<typename T>

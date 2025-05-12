@@ -24,6 +24,7 @@ MeshRaytracingApplication::MeshRaytracingApplication()
     , m_frameCount(0)
     , m_sphereCenter(-3, 0, 0)
     , m_boxMatrix(glm::translate(glm::vec3(3, 0, 0)))
+    , m_meshMatrix(glm::translate(glm::vec3(3, -3, 0)))
 {
 }
 
@@ -46,27 +47,38 @@ void MeshRaytracingApplication::Initialize()
     m_scene.AddSceneNode(std::make_shared<SceneModel>("box model", boxModel));
 
     Mesh* mesh = &boxModel->GetMesh();
-    std::vector<glm::vec3> triangleVertices = mesh->GetTriangleData();
+    std::vector<glm::vec4> triangleVertices = mesh->GetTriangleData();
 
-	GLuint ssbo;
-
+    /*GLuint ssbo;
     glGenBuffers(1, &ssbo);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER, triangleVertices.size() * sizeof(glm::vec3), triangleVertices.data(), GL_STATIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);*/
 
-    //ShaderStorageBufferObject ssbo;
-    //ssbo.Bind();
-    //ssbo.AllocateData(std::span<const std::byte>(
-    //    reinterpret_cast<const std::byte*>(triangleVertices.data()),
-    //    triangleVertices.size() * sizeof(glm::vec3)
-    //), BufferObject::Usage::StaticDraw);
-    //const GLuint handle = ssbo.GetHandle();
+    for (auto triangle_vertex : triangleVertices)
+    {
+        printf("Vertex: %f, %f, %f\n", triangle_vertex.x, triangle_vertex.y, triangle_vertex.z);
+    }
+    printf("---------------------------------------------------\n");
 
-    //// Bind SSBO to binding point 0
-    //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, handle);
+    m_ssbo.Bind();
+    m_ssbo.AllocateData(std::span(triangleVertices), BufferObject::Usage::StaticDraw);
+    const GLuint handle = m_ssbo.GetHandle();
 
-    //ssbo.Unbind();
+    // Bind SSBO to binding point 0
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, handle);
+
+    ShaderStorageBufferObject::Unbind();
+
+    /*GLuint ssbo;
+    glCreateBuffers(1, &ssbo);
+
+    glNamedBufferStorage(ssbo,
+        sizeof(glm::vec4) * triangleVertices.size(),
+        static_cast<const void*>(triangleVertices.data()),
+        GL_DYNAMIC_STORAGE_BIT);
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssbo);*/
 }
 
 void MeshRaytracingApplication::Update()
@@ -93,6 +105,7 @@ void MeshRaytracingApplication::Update()
     m_material->SetUniformValue("InvProjMatrix", glm::inverse(camera.GetProjectionMatrix()));
     m_material->SetUniformValue("SphereCenter", glm::vec3(viewMatrix * glm::vec4(m_sphereCenter, 1.0f)));
     m_material->SetUniformValue("BoxMatrix", viewMatrix * m_boxMatrix);
+    m_material->SetUniformValue("MeshMatrix", viewMatrix * m_meshMatrix);
     m_material->SetUniformValue("FrameCount", ++m_frameCount);
 }
 
@@ -148,9 +161,13 @@ void MeshRaytracingApplication::InitializeMaterial()
     m_material->SetUniformValue("BoxMatrix", m_boxMatrix);
     m_material->SetUniformValue("BoxSize", glm::vec3(1, 1, 1));
     m_material->SetUniformValue("BoxColor", glm::vec3(1, 0, 0));
+    m_material->SetUniformValue("MeshMatrix", m_meshMatrix);
+    m_material->SetUniformValue("MeshColor", glm::vec3(1, 0, 0));
     m_material->SetUniformValue("LightColor", glm::vec3(1.0f));
     m_material->SetUniformValue("LightIntensity", 4.0f);
     m_material->SetUniformValue("LightSize", glm::vec2(3.0f));
+
+
 
     // Enable blending and set the blending parameters to alpha blending
     m_material->SetBlendEquation(Material::BlendEquation::Add);
@@ -195,14 +212,14 @@ std::shared_ptr<Material> MeshRaytracingApplication::CreateRaytracingMaterial(co
     vertexShaderPaths.push_back("shaders/renderer/fullscreen.vert");
     Shader vertexShader = ShaderLoader(Shader::VertexShader).Load(vertexShaderPaths);
 
-    std::vector<const char*> fragmentShaderPaths;
-    fragmentShaderPaths.push_back("shaders/version330.glsl");
-    fragmentShaderPaths.push_back("shaders/utils.glsl");
-    fragmentShaderPaths.push_back("shaders/transform.glsl");
-    fragmentShaderPaths.push_back("shaders/raytracer.glsl");
-    fragmentShaderPaths.push_back("shaders/raylibrary.glsl");
-    fragmentShaderPaths.push_back(fragmentShaderPath);
-    fragmentShaderPaths.push_back("shaders/raytracing.frag");
+    std::vector<const char*> fragmentShaderPaths; 
+	fragmentShaderPaths.push_back("shaders/version330.glsl");
+	fragmentShaderPaths.push_back("shaders/utils.glsl");
+	fragmentShaderPaths.push_back("shaders/transform.glsl");
+	fragmentShaderPaths.push_back("shaders/raytracer.glsl");
+	fragmentShaderPaths.push_back("shaders/raylibrary.glsl");
+	fragmentShaderPaths.push_back(fragmentShaderPath);
+	fragmentShaderPaths.push_back("shaders/raytracing.frag");
     Shader fragmentShader = ShaderLoader(Shader::FragmentShader).Load(fragmentShaderPaths);
 
     std::shared_ptr<ShaderProgram> shaderProgramPtr = std::make_shared<ShaderProgram>();
@@ -210,7 +227,6 @@ std::shared_ptr<Material> MeshRaytracingApplication::CreateRaytracingMaterial(co
 
     // Create material
     std::shared_ptr<Material> material = std::make_shared<Material>(shaderProgramPtr);
-    
     return material;
 }
 
@@ -238,7 +254,7 @@ std::shared_ptr<Material> MeshRaytracingApplication::CreateCopyMaterial()
 
 void MeshRaytracingApplication::RenderGUI()
 {
-    /*m_imGui.BeginFrame();
+    m_imGui.BeginFrame();
 
     bool changed = false;
 
@@ -259,9 +275,20 @@ void MeshRaytracingApplication::RenderGUI()
 
             changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
             changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
-            changed |= ImGui::DragFloat3("Size", m_material->GetDataUniformPointer<float>("BoxSize"), 0.1f);
             changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("BoxColor"));
             m_boxMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
+
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNodeEx("Mesh", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            static glm::vec3 translation(3, -3, 0);
+            static glm::vec3 rotation(0.0f);
+
+            changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
+            changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
+            changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("MeshColor"));
+            m_meshMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
 
             ImGui::TreePop();
         }
@@ -280,5 +307,5 @@ void MeshRaytracingApplication::RenderGUI()
         InvalidateScene();
     }
 
-    m_imGui.EndFrame();*/
+    m_imGui.EndFrame();
 }
