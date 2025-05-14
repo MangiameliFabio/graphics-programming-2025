@@ -11,9 +11,19 @@ uniform vec3 BoxSize = vec3(1, 1, 1);
 uniform vec3 MeshColor = vec3(1, 0, 0);
 uniform mat4 MeshMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
 
+uniform float SphereRoughness;
+uniform float BoxRoughness;
+uniform float MeshRoughness;
+
+uniform float SphereMetalness;
+uniform float BoxMetalness;
+uniform float MeshMetalness;
+
 uniform vec3 LightColor = vec3(1.0f);
 uniform float LightIntensity = 4.0f;
 uniform vec2 LightSize = vec2(3.0f);
+
+uniform sampler2D BoxTexture;
 
 const vec3 CornellBoxSize = vec3(10.0f);
 
@@ -30,9 +40,9 @@ struct Material
 	vec3 emissive;
 };
 
-Material SphereMaterial = Material(SphereColor, /* roughness */0.0f, /* metalness */0.0f, /* ior */1.35f, /* emissive */vec3(0.0f));
-Material BoxMaterial = Material(BoxColor, /* roughness */0.5f, /* metalness */0.0f, /* ior */1.1f, /* emissive */vec3(0.0f));
-Material MeshMaterial = Material(MeshColor, /* roughness */0.5f, /* metalness */0.0f, /* ior */1.1f, /* emissive */vec3(0.0f));
+Material SphereMaterial = Material(SphereColor, SphereRoughness, SphereMetalness, /* ior */0.f, /* emissive */ vec3(0.0f));
+Material BoxMaterial = Material(BoxColor, BoxRoughness, BoxMetalness, /* ior */1.1f, /* emissive */vec3(0.0f));
+Material MeshMaterial = Material(MeshColor, MeshRoughness, MeshMetalness, /* ior */0.f, /* emissive */vec3(0.0f));
 
 Material CornellMaterial = Material(/* color */vec3(1.0f), /* roughness */0.75f, /* metalness */0.0f, /* ior */0.0f, /* emissive */vec3(0.0f));
 Material LightMaterial = Material(vec3(0.0f), 0.0f, 0.0f, 0.0f, /* emissive */LightIntensity * LightColor);
@@ -40,11 +50,18 @@ Material LightMaterial = Material(vec3(0.0f), 0.0f, 0.0f, 0.0f, /* emissive */Li
 // Forward declare ProcessOutput function
 vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material);
 
+vec4 GetColorFromTexture(sampler2D sampler, vec2 uv) {
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+    
+    return texture(sampler, uv);
+}
+
 // Main function for casting rays: Defines the objects in the scene
 vec3 CastRay(Ray ray, inout float distance)
 {
 	Material material;
 	vec3 normal;
+	vec2 uvCoords;
 
 	// Cornell box
 	if (RayBoxIntersection(ray, ViewMatrix, CornellBoxSize, distance, normal))
@@ -72,16 +89,11 @@ vec3 CastRay(Ray ray, inout float distance)
 		material = SphereMaterial;
 	}
 
-	// Box
-	if (RayBoxIntersection(ray, BoxMatrix, BoxSize, distance, normal))
-	{
-	  	material = BoxMaterial;
-	}
-
 	// Mesh
-	if (RayMeshIntersection(ray, MeshMatrix, distance, normal))
+	if (RayMeshIntersection(ray, MeshMatrix, distance, normal, uvCoords))
 	{
 		material = MeshMaterial;
+		material.albedo *= GetColorFromTexture(BoxTexture, uvCoords).xyz;
 	}
 
 	// We check if normal == vec3(0) to detect if there was a hit
@@ -108,24 +120,42 @@ vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material)
 	if (distance < 0.001f) { return vec3(0.f); }
 
 	normal = normalize(normal);
-	
-	vec3 hitPosition = ray.point + ray.direction * distance;
-	vec3 lightPosition = TransformFromLocalPoint(vec3(0, CornellBoxSize.y, 0), ViewMatrix);
-	vec3 lightDirection = normalize(lightPosition - hitPosition);
 
-	Ray diffuseRay = GetDerivedRay(ray, hitPosition, lightDirection);
-	diffuseRay.colorFilter *= material.albedo;
-	diffuseRay.colorFilter *= ClampedDot(normal, lightDirection);
-	diffuseRay.colorFilter *= InvPi;
+	// Find the position where the ray hit the surface
+	vec3 contactPosition = ray.point + distance * ray.direction;
 
+	// Compute the fresnel
+	vec3 fresnel = FresnelSchlick(GetReflectance(material), -ray.direction, normal);
+
+	//PushRay(shadowRay);
+
+	// Compute transparency
+	bool isTransparent = material.ior != 0.0f;
+	bool isExit = ray.ior != 1.0f;
+	float ior = mix(1.0f, material.ior, isTransparent && !isExit);
+	vec3 refractedDirection = GetRefractedDirection(ray, normal, ray.ior / ior);
+
+	// Add a ray to compute the diffuse lighting
+	vec3 diffuseDirection = GetDiffuseReflectionDirection(ray, normal);
+	Ray diffuseRay = GetDerivedRay(ray, contactPosition, isTransparent ? refractedDirection : diffuseDirection);
+	if (!isExit)
+	{
+		diffuseRay.colorFilter *= GetAlbedo(material);
+	}
+	diffuseRay.colorFilter *= (1.0f - fresnel);
+	diffuseRay.ior = ior;
 	PushRay(diffuseRay);
 
-	// (todo) 11.1: Add a ray to compute the diffuse lighting
-
-	// (todo) 11.2: Add a ray to compute the specular lighting
+	// Add a ray to compute the specular lighting
+	float roughness = material.roughness * material.roughness;
+	vec3 reflectedDirection = GetSpecularReflectionDirection(ray, normal);
+	vec3 specularDirection = mix(reflectedDirection, diffuseDirection, roughness);
+	Ray specularRay = GetDerivedRay(ray, contactPosition, specularDirection);
+	specularRay.colorFilter *= fresnel;
+	PushRay(specularRay);
 
 	// Return emissive light, after applying the ray color filter
-	return ray.colorFilter * material.emissive;
+	return max(vec3(0.f), ray.colorFilter * material.emissive);
 }
 
 // Configure ray tracer

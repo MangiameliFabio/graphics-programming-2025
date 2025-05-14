@@ -1,0 +1,642 @@
+#version 450
+
+// Constant value for PI
+const float Pi = 3.1416f;
+
+// Constant value for 1 / PI
+const float InvPi = 0.31831f;
+
+//
+vec3 GetCameraPosition(mat4 viewMatrix)
+{
+	vec3 position = viewMatrix[3].xyz;
+	position = -(transpose(viewMatrix) * vec4(position, 0)).xyz;
+	return position;
+}
+
+//
+vec3 GetHalfVector(vec3 v1, vec3 v2)
+{
+   return normalize(v1 + v2);
+}
+
+//
+vec3 GetDirection(vec3 fromPosition, vec3 toPosition)
+{
+	return normalize(toPosition - fromPosition);
+}
+
+//
+float ClampedDot(vec3 v1, vec3 v2)
+{
+	return max(dot(v1, v2), 0);
+}
+
+//
+vec3 GetImplicitNormal(vec2 normal)
+{
+	float z = sqrt(1.0f - normal.x * normal.x - normal.y * normal.y);
+	return vec3(normal, z);
+}
+
+//
+vec3 SampleNormalMap(sampler2D normalTexture, vec2 texCoord, vec3 normal, vec3 tangent, vec3 bitangent)
+{
+	// Read normalTexture
+	vec2 normalMap = texture(normalTexture, texCoord).xy * 2 - vec2(1);
+
+	// Get implicit Z component
+	vec3 normalTangentSpace = GetImplicitNormal(normalMap);
+
+	// Create tangent space matrix
+	mat3 tangentMatrix = mat3(tangent, bitangent, normal);
+
+	// Return matrix in world space
+	return normalize(tangentMatrix * normalTangentSpace);
+}
+
+//
+vec3 SampleNormalMap(sampler2D normalTexture, vec2 texCoord, vec3 normal, vec3 tangent)
+{
+	// Build the tangent space base vectors
+	normal = normalize(normal);
+	vec3 bitangent = normalize(cross(normal, tangent));
+	tangent = cross(normal, bitangent);
+
+	return SampleNormalMap(normalTexture, texCoord, normal, tangent, bitangent);
+}
+
+//
+vec3 ReconstructViewPosition(sampler2D depthTexture, vec2 texCoord, mat4 invProjMatrix)
+{
+	// Reconstruct the position, using the screen texture coordinates and the depth
+	float depth = texture(depthTexture, texCoord).r;
+	vec3 clipPosition = vec3(texCoord, depth) * 2.0f - vec3(1.0f);
+	vec4 viewPosition = invProjMatrix * vec4(clipPosition, 1.0f);
+	return viewPosition.xyz / viewPosition.w;
+}
+
+float GetLuminance(vec3 color)
+{
+   return dot(color, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+vec3 RGBToHSV(vec3 rgb)
+{
+   vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+
+   vec4 p = mix( vec4( rgb.bg, K.wz ), vec4( rgb.gb, K.xy ), step( rgb.b, rgb.g ) );
+   vec4 q = mix( vec4( p.xyw, rgb.r ), vec4( rgb.r, p.yzx ), step( p.x, rgb.r ) );
+
+   float d = q.x - min( q.w, q.y );
+
+   float epsilon = 1.0e-10;
+
+   return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + epsilon)), d / (q.x + epsilon), q.x);
+}
+
+vec3 HSVToRGB( vec3 hsv )
+{
+   vec4 K = vec4( 1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0 );
+
+   vec3 p = abs( fract( hsv.xxx + K.xyz ) * 6.0 - K.www );
+
+   return hsv.z * mix( K.xxx, clamp(p - K.xxx, 0, 1), hsv.y );
+}
+
+// Random sequence generator
+uint LCG(inout uint prev)
+{
+    const uint LCG_A = 1664525u;
+    const uint LCG_C = 1013904223u;
+    prev = (LCG_A * prev + LCG_C);
+    return prev & 0x00FFFFFFu;
+}
+// Transform point relative to a specific position
+vec3 TransformToLocalPoint(vec3 p, vec3 position)
+{
+	return p - position;
+}
+
+// Transform point relative to a specific position back to view space
+vec3 TransformFromLocalPoint(vec3 p, vec3 position)
+{
+	return p + position;
+}
+
+// Transform point relative to a transform matrix
+vec3 TransformToLocalPoint(vec3 p, mat4 m)
+{
+	return (inverse(m) * vec4(p, 1)).xyz;
+}
+
+// Transform point relative to a transform matrix back to view space
+vec3 TransformFromLocalPoint(vec3 p, mat4 m)
+{
+	return (m * vec4(p, 1)).xyz;
+}
+
+// Transform vector relative to a transform matrix
+vec3 TransformToLocalVector(vec3 v, mat4 m)
+{
+	return (inverse(m) * vec4(v, 0)).xyz;
+}
+
+// Transform vector relative to a transform matrix back to view space
+vec3 TransformFromLocalVector(vec3 v, mat4 m)
+{
+	return (m * vec4(v, 0)).xyz;
+}
+
+struct Ray
+{
+	vec3 point;
+	vec3 direction;
+	vec3 colorFilter;
+	float ior;
+};
+
+// Forward declare distance function
+vec3 CastRay(Ray ray, inout float distance);
+vec3 CastRay(Ray ray)
+{
+	const float infinity = 1.0f/0.0f;
+	float distance = infinity;
+	return CastRay(ray, distance);
+}
+
+// Forward declare config function
+void GetRayTracerConfig(out uint maxRays);
+
+// Hard limit for the number of rays. Affects performance
+const uint RayCapacity = 16u;
+Ray _PendingRays[RayCapacity];
+
+uint _RayCount = 0u;
+uint _RayIndex = 0u;
+uint _RayMaxCount = RayCapacity;
+
+bool PushRay(in Ray ray)
+{
+	bool pushed = false;
+	if (_RayCount < _RayMaxCount) // && dot(ray.colorFilter, ray.colorFilter) > 0.0f)
+	{
+		// Offset in the ray direction
+		ray.point += 0.0001f * ray.direction;
+		_PendingRays[_RayCount++] = ray;
+		pushed = true;
+	}
+	return pushed;
+}
+
+
+bool GetPendingRay(out Ray ray)
+{
+	bool found = false;
+	if (_RayIndex < _RayCount && _RayIndex < _RayMaxCount)
+	{
+		ray = _PendingRays[_RayIndex++];
+		found = true;
+	}
+	return found;
+}
+
+vec3 RayTrace(vec3 point, vec3 direction)
+{
+	vec3 color = vec3(0);
+
+	uint maxRays;
+	GetRayTracerConfig(maxRays);
+	_RayMaxCount = min(_RayMaxCount, maxRays);
+
+	Ray ray = Ray(point, direction, vec3(1.0f), 1.0f);
+
+	do
+	{
+		color += CastRay(ray);
+	} while(GetPendingRay(ray));
+
+	return color;
+}struct Triangle {
+    vec4 v0;
+    vec4 v1;
+    vec4 v2;
+
+    vec4 normal0;  
+    vec4 normal1;  
+    vec4 normal2;   
+
+    vec2 uv0;
+    vec2 uv1;
+    vec2 uv2;
+
+    uint materialId;
+    uint padding;
+};
+
+
+layout(binding = 0, std430) readonly buffer Triangles {
+    Triangle triangles[];
+};
+
+// Test intersection between a ray and a sphere
+bool RaySphereIntersection(Ray ray, vec3 center, float radius, inout float distance, inout vec3 normal)
+{
+	bool hit = false;
+
+	//vec3 m = TransformToLocalPoint(ray.point, center);
+	vec3 m = ray.point - center;
+
+	float b = dot(m, ray.direction); 
+	float c = dot(m, m) - radius * radius; 
+
+	if (c <= 0.0f || b <= 0.0f)
+	{
+		float discr = b * b - c;
+		if (discr >= 0.0f)
+		{
+			float sqrtDiscr = sqrt(discr);
+			float d = -b - sqrtDiscr;
+			float flipNormal = 1.0f;
+			if (d < 0.0f)
+			{
+				d = -b + sqrtDiscr;
+				flipNormal = -1.0f;
+			}
+
+			if (d < distance)
+			{
+				distance = d;
+
+				vec3 point = m + d * ray.direction;
+				normal = flipNormal * normalize(point);
+
+				hit = true;
+			}
+		}
+	}
+
+	return hit;
+}
+
+
+// Test intersection between a ray and an axis aligned box
+bool RayAABBIntersection(Ray ray, vec3 size, inout float distance, inout vec3 normal)
+{
+	bool hit = false;
+
+	vec3 dirSign = mix(vec3(-1), vec3(1), greaterThanEqual(ray.direction, vec3(0)));
+	vec3 distancesMin = (-dirSign * size - ray.point) / ray.direction;
+	vec3 distancesMax = ( dirSign * size - ray.point) / ray.direction;
+
+	float distanceMin = max(distancesMin.x, max(distancesMin.y, distancesMin.z));
+	float distanceMax = min(distancesMax.x, min(distancesMax.y, distancesMax.z));
+
+	if (distanceMin < distanceMax)
+	{
+		if (distanceMin < 0)
+		{
+			distanceMin = distanceMax;
+			distancesMin = distancesMax;
+		}
+
+		if (distanceMin > 0 && distanceMin < distance)
+		{
+			distance = distanceMin;
+			normal = mix(vec3(0.0f), -dirSign, equal(distancesMin, vec3(distance)));
+
+			hit = true;
+		}
+	}
+	return hit;
+}
+
+// Test intersection between a ray and a box
+bool RayBoxIntersection(Ray ray, mat4 matrix, vec3 size, inout float distance, inout vec3 normal)
+{
+	ray.point = (inverse(matrix) * vec4(ray.point, 1)).xyz;
+	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
+	bool hit = RayAABBIntersection(ray, size, distance, normal);
+	if (hit)
+	{
+		normal = (matrix * vec4(normal, 0)).xyz;
+	}
+
+	return hit;
+}
+
+bool RayTriangleIntersection( vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, inout float distance , inout vec2 uv)
+{
+    vec3 v1v0 = v1-v0, v2v0 = v2-v0, rov0 = ro-v0;
+ 
+    vec3  n = cross( v1v0, v2v0 );
+    vec3  q = cross( rov0, rd );
+    float d = 1.0/dot(  n, rd );
+    float u =   d*dot( -q, v2v0 );
+    float v =   d*dot(  q, v1v0 );
+    float t =   d*dot( -n, rov0 );
+
+	if (u < 0.0 || v < 0.0 || (u + v) > 1.0) return false;
+    if (t < 0.0) return false;
+
+	distance = t;
+	uv = vec2(u, v);
+
+    return true;
+}
+
+// Test intersection between a ray and a meshes
+bool RayMeshIntersection(Ray ray, mat4 matrix, inout float distance, inout vec3 normal, inout vec2 uv)
+{
+	ray.point = (inverse(matrix) * vec4(ray.point, 1)).xyz;
+	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
+
+	bool hit = false;
+
+	for (int i = 0; i < triangles.length(); i++) {
+        vec3 v0 = triangles[i].v0.xyz;
+        vec3 v1 = triangles[i].v1.xyz;
+        vec3 v2 = triangles[i].v2.xyz;
+
+		float t;
+        if (RayTriangleIntersection(ray.point, ray.direction, v0, v1, v2, t, uv)) {
+            if (t < distance) {
+                distance = t;
+                hit = true;
+
+				vec3 edge1 = v1 - v0;
+				vec3 edge2 = v2 - v0;
+				normal = cross(edge1, edge2);
+            }
+        }
+    }
+
+	if (hit)
+	{
+		normalize(normal);
+		normal = (matrix * vec4(normal, 0)).xyz;
+	}
+
+	return hit;
+}
+// Uniforms
+uniform vec3 SphereColor = vec3(0, 0, 1);
+uniform vec3 SphereCenter = vec3(-3, 0, 0);
+uniform float SphereRadius = 1.25f;
+
+uniform vec3 BoxColor = vec3(1, 0, 0);
+uniform mat4 BoxMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
+uniform vec3 BoxSize = vec3(1, 1, 1);
+
+uniform vec3 MeshColor = vec3(1, 0, 0);
+uniform mat4 MeshMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
+
+uniform float SphereRoughness;
+uniform float BoxRoughness;
+uniform float MeshRoughness;
+
+uniform float SphereMetalness;
+uniform float BoxMetalness;
+uniform float MeshMetalness;
+
+uniform vec3 LightColor = vec3(1.0f);
+uniform float LightIntensity = 4.0f;
+uniform vec2 LightSize = vec2(3.0f);
+
+uniform sampler2D BoxTexture;
+
+const vec3 CornellBoxSize = vec3(10.0f);
+
+uniform mat4 ViewMatrix;
+
+// Materials
+
+struct Material
+{
+	vec3 albedo;
+	float roughness;
+	float metalness;
+	float ior;
+	vec3 emissive;
+};
+
+Material SphereMaterial = Material(SphereColor, SphereRoughness, SphereMetalness, /* ior */0.f, /* emissive */ vec3(0.0f));
+Material BoxMaterial = Material(BoxColor, BoxRoughness, BoxMetalness, /* ior */1.1f, /* emissive */vec3(0.0f));
+Material MeshMaterial = Material(MeshColor, MeshRoughness, MeshMetalness, /* ior */0.f, /* emissive */vec3(0.0f));
+
+Material CornellMaterial = Material(/* color */vec3(1.0f), /* roughness */0.75f, /* metalness */0.0f, /* ior */0.0f, /* emissive */vec3(0.0f));
+Material LightMaterial = Material(vec3(0.0f), 0.0f, 0.0f, 0.0f, /* emissive */LightIntensity * LightColor);
+
+// Forward declare ProcessOutput function
+vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material);
+
+vec4 GetColorFromTexture(sampler2D texture, vec2 uv) {
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+    
+    return texture(texture, uv);
+}
+
+// Main function for casting rays: Defines the objects in the scene
+vec3 CastRay(Ray ray, inout float distance)
+{
+	Material material;
+	vec3 normal;
+	//vec2 uvCoords;
+
+	// Cornell box
+	if (RayBoxIntersection(ray, ViewMatrix, CornellBoxSize, distance, normal))
+	{
+		material = CornellMaterial;
+
+		// Find local coordinates to paint the faces
+		vec3 localPoint = TransformToLocalPoint(ray.point + ray.direction * distance, ViewMatrix);
+		vec3 localPointAbs = abs(localPoint);
+
+		// X axis: Left (red) and right (green)
+		if (localPointAbs.x > localPointAbs.y && localPointAbs.x > localPointAbs.z)
+			material.albedo = localPoint.x < 0 ? vec3(1.0f, 0.1f, 0.1f) : vec3(0.1f, 1.0f, 0.1f);
+		// Y axis: Top (light)
+		else if (localPoint.y > localPointAbs.x && localPoint.y > localPointAbs.z && localPointAbs.x < LightSize.x && localPointAbs.z < LightSize.y)
+			material = LightMaterial;
+		// Z axis: Front (black)
+		else if (localPoint.z > localPointAbs.x && localPoint.z > localPointAbs.y)
+			material.albedo = vec3(0);
+	}
+
+	// Sphere
+	if (RaySphereIntersection(ray, SphereCenter, SphereRadius, distance, normal))
+	{
+		material = SphereMaterial;
+	}
+
+	// Mesh
+	//if (RayMeshIntersection(ray, MeshMatrix, distance, normal, uvCoords))
+	//{
+	//	material = MeshMaterial;
+	//	material.albedo = GetColorFromTexture(BoxTexture, uvCoords).xyz;
+	//}
+
+	// We check if normal == vec3(0) to detect if there was a hit
+	//return dot(normal, normal) > 0 ? ProcessOutput(ray, distance, normal, material) : vec3(0.0f);
+
+	return vec3(0.0f);
+}
+
+// Forward declare helper functions
+vec3 GetAlbedo(Material material);
+vec3 GetReflectance(Material material);
+vec3 FresnelSchlick(vec3 f0, vec3 viewDir, vec3 halfDir);
+vec3 GetDiffuseReflectionDirection(Ray ray, vec3 normal);
+vec3 GetSpecularReflectionDirection(Ray ray, vec3 normal);
+vec3 GetRefractedDirection(Ray ray, vec3 normal, float f);
+
+// Creates a new derived ray using the specified position and direction
+Ray GetDerivedRay(Ray ray, vec3 position, vec3 direction)
+{
+	return Ray(position, direction, ray.colorFilter, ray.ior);
+}
+
+// Produce a color value after computing the intersection
+vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material)
+{
+	if (distance < 0.001f) { return vec3(0.f); }
+
+	normal = normalize(normal);
+
+	// Find the position where the ray hit the surface
+	vec3 contactPosition = ray.point + distance * ray.direction;
+
+	// Compute the fresnel
+	vec3 fresnel = FresnelSchlick(GetReflectance(material), -ray.direction, normal);
+
+	//PushRay(shadowRay);
+
+	// Compute transparency
+	bool isTransparent = material.ior != 0.0f;
+	bool isExit = ray.ior != 1.0f;
+	float ior = mix(1.0f, material.ior, isTransparent && !isExit);
+	vec3 refractedDirection = GetRefractedDirection(ray, normal, ray.ior / ior);
+
+	// Add a ray to compute the diffuse lighting
+	vec3 diffuseDirection = GetDiffuseReflectionDirection(ray, normal);
+	Ray diffuseRay = GetDerivedRay(ray, contactPosition, isTransparent ? refractedDirection : diffuseDirection);
+	if (!isExit)
+	{
+		diffuseRay.colorFilter *= GetAlbedo(material);
+	}
+	diffuseRay.colorFilter *= (1.0f - fresnel);
+	diffuseRay.ior = ior;
+	PushRay(diffuseRay);
+
+	// Add a ray to compute the specular lighting
+	float roughness = material.roughness * material.roughness;
+	vec3 reflectedDirection = GetSpecularReflectionDirection(ray, normal);
+	vec3 specularDirection = mix(reflectedDirection, diffuseDirection, roughness);
+	Ray specularRay = GetDerivedRay(ray, contactPosition, specularDirection);
+	specularRay.colorFilter *= fresnel;
+	PushRay(specularRay);
+
+	// Return emissive light, after applying the ray color filter
+	return max(vec3(0.f), ray.colorFilter * material.emissive);
+}
+
+// Configure ray tracer
+void GetRayTracerConfig(out uint maxRays)
+{
+	maxRays = 14u;
+}//Inputs
+in vec2 TexCoord;
+
+//Outputs
+out vec4 FragColor;
+
+//Uniforms
+uniform mat4 ProjMatrix;
+uniform mat4 InvProjMatrix;
+uniform uint FrameCount;
+
+void InitRandomSeed();
+float Rand01();
+
+void main()
+{
+	InitRandomSeed();
+
+	// Start from transformed position
+	vec4 viewPos = InvProjMatrix * vec4(TexCoord.xy * 2.0f - 1.0f, 0.0f, 1.0f);
+	vec3 origin = viewPos.xyz / viewPos.w;
+
+	// Normalize to get view direction
+	vec3 dir = normalize(origin);
+
+	// Raytrace the scene
+	//vec3 color = RayTrace(origin, dir);
+
+	// Compute the alpha to blend between frames of the path tracer
+	float alpha = 1.0f / FrameCount;
+	FragColor = vec4(color, alpha);
+}
+
+
+// Additional functions
+
+uint RandSeed;
+
+// Initalize random seed
+void InitRandomSeed()
+{
+	uint seedTime = FrameCount;
+	uint seedX = uint(gl_FragCoord.x);
+	uint seedY = uint(gl_FragCoord.y);
+	RandSeed = LCG(seedX) ^ LCG(seedY) ^ LCG(seedTime);
+}
+
+// Generates a random float between 0 and 1
+float Rand01()
+{
+	return float(LCG(RandSeed)) / float(0x01000000u);
+}
+
+// Returns a random direction on the cosine weighted hemisphere oriented along the normal
+vec3 GetDiffuseReflectionDirection(Ray ray, vec3 normal)
+{
+	float phi = 6.28318530718f * Rand01();
+	vec3 direction = GetImplicitNormal(vec2(cos(phi), sin(phi)) * Rand01());
+	vec3 bitangent = normalize(cross(normal, normal.z > 0.5f ? vec3(0, 1, 0) : vec3(0, 0, 1)));
+	vec3 tangent = cross(normal, bitangent);
+	return direction.x * bitangent + direction.y * tangent + direction.z * normal;
+}
+
+// Returns the direction of the ray reflected over the normal
+vec3 GetSpecularReflectionDirection(Ray ray, vec3 normal)
+{
+	return reflect(ray.direction, normal);
+}
+
+// Returns the direction of the ray refracted 
+vec3 GetRefractedDirection(Ray ray, vec3 normal, float f)
+{
+	return refract(ray.direction, normal, f);
+}
+
+vec3 GetAlbedo(Material material)
+{
+	// Metals have a black albedo
+	return mix(material.albedo, vec3(0), material.metalness);
+}
+
+vec3 GetReflectance(Material material)
+{
+	// We use a fixed value for dielectric, with a typical value for these materials (4%)
+	return mix(vec3(0.04f), material.albedo, material.metalness);
+}
+
+// Schlick simplification of the Fresnel term
+vec3 FresnelSchlick(vec3 f0, vec3 viewDir, vec3 halfDir)
+{
+	return f0 + (vec3(1.0f) - f0) * pow(1.0f - ClampedDot(viewDir, halfDir), 5.0f);
+}
+
+
+
+

@@ -9,6 +9,24 @@
 #include <vector>
 #include <unordered_map>
 
+
+struct Triangle {
+    glm::vec4 v0;
+    glm::vec4 v1;
+    glm::vec4 v2;
+
+    glm::vec4 normal0;  
+    glm::vec4 normal1;  
+    glm::vec4 normal2;
+
+    glm::vec2 uv0;
+    glm::vec2 uv1;
+    glm::vec2 uv2;
+
+    glm::uint materialId;
+    glm::uint padding;
+};
+
 // Class that groups several VBO, EBO and VAO that are part of the same object
 // Can contain several drawcalls using the data in those objects
 class Mesh
@@ -113,8 +131,8 @@ public:
     inline const VertexArrayObject& GetSubmeshVertexArray(unsigned int submeshIndex) const { return m_vaos[m_submeshes[submeshIndex].vaoIndex]; }
     inline const Drawcall& GetSubmeshDrawcall(unsigned int submeshIndex) const { return m_submeshes[submeshIndex].drawcall; }
 
-    inline const std::vector<glm::vec4>& GetTriangleData() const { return m_triangleData; }
-    inline void SetTriangleData(const std::vector<glm::vec4>& data) { m_triangleData = data; }
+    inline const std::vector<Triangle>& GetTriangleData() const { return m_triangleData; }
+    inline void SetTriangleData(const std::vector<Triangle>& data) { m_triangleData = data; }
 
     // Draws a submesh
     void DrawSubmesh(int submeshIndex) const;
@@ -155,7 +173,7 @@ private:
     // Submeshes contained in this mesh
     std::vector<Submesh> m_submeshes;
 
-    std::vector<glm::vec4> m_triangleData;
+    std::vector<Triangle> m_triangleData;
 };
 
 template<typename T>

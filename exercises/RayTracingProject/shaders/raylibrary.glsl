@@ -1,6 +1,23 @@
+struct Triangle {
+    vec4 v0;
+    vec4 v1;
+    vec4 v2;
+
+    vec4 normal0;  
+    vec4 normal1;  
+    vec4 normal2;   
+
+    vec2 uv0;
+    vec2 uv1;
+    vec2 uv2;
+
+    uint materialId;
+    uint padding;
+};
+
 
 layout(binding = 0, std430) readonly buffer Triangles {
-    vec4 triangles[];
+    Triangle triangles[];
 };
 
 // Test intersection between a ray and a sphere
@@ -85,10 +102,11 @@ bool RayBoxIntersection(Ray ray, mat4 matrix, vec3 size, inout float distance, i
 	{
 		normal = (matrix * vec4(normal, 0)).xyz;
 	}
+
 	return hit;
 }
 
-bool RayTriangleIntersection( vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, inout float distance )
+bool RayTriangleIntersection( vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, inout float distance , inout float hitU, inout float hitV)
 {
     vec3 v1v0 = v1-v0, v2v0 = v2-v0, rov0 = ro-v0;
  
@@ -103,39 +121,49 @@ bool RayTriangleIntersection( vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, inout
     if (t < 0.0) return false;
 
 	distance = t;
+	hitU = u;
+	hitV = v;
+
     return true;
 }
 
 // Test intersection between a ray and a meshes
-bool RayMeshIntersection(Ray ray, mat4 matrix, inout float distance, inout vec3 normal)
+bool RayMeshIntersection(Ray ray, mat4 matrix, inout float distance, inout vec3 normal, inout vec2 uv)
 {
 	ray.point = (inverse(matrix) * vec4(ray.point, 1)).xyz;
 	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
 
 	bool hit = false;
 
-	for (int i = 0; i < triangles.length(); i += 3) {
-        vec3 v0 = triangles[i].xyz;
-        vec3 v1 = triangles[i + 1].xyz;
-        vec3 v2 = triangles[i + 2].xyz;
+	for (int i = 0; i < triangles.length(); i++) {
+        vec3 v0 = triangles[i].v0.xyz;
+        vec3 v1 = triangles[i].v1.xyz;
+        vec3 v2 = triangles[i].v2.xyz;
+
+		vec2 uv0 = triangles[i].uv0;
+        vec2 uv1 = triangles[i].uv1;
+        vec2 uv2 = triangles[i].uv2;
 
 		float t;
-        if (RayTriangleIntersection(ray.point, ray.direction, v0.xyz, v1.xyz, v2.xyz, t)) {
+		float u;
+		float v;
+
+        if (RayTriangleIntersection(ray.point, ray.direction, v0, v1, v2, t, u, v)) {
             if (t < distance) {
                 distance = t;
                 hit = true;
 
-				vec3 edge1 = v1.xyz - v0.xyz;
-				vec3 edge2 = v2.xyz - v0.xyz;
-				normal = cross(edge1, edge2);
+				normal = triangles[i].normal0.xyz * triangles[i].normal1.xyz * triangles[i].normal2.xyz;
+
+				uv = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
             }
         }
     }
 
 	if (hit)
 	{
-		normal = (matrix * vec4(normal, 0)).xyz;
 		normalize(normal);
+		normal = (matrix * vec4(normal, 0)).xyz;
 	}
 
 	return hit;

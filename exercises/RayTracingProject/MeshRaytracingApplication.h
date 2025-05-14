@@ -32,6 +32,7 @@ private:
 
     std::shared_ptr<Material> CreateCopyMaterial();
     std::shared_ptr<Material> CreateRaytracingMaterial(const char* fragmentShaderPath);
+    std::shared_ptr<Texture2DObject> LoadTexture(const char* path);
 
     void InvalidateScene();
 
@@ -64,6 +65,8 @@ private:
 
     // Framebuffer
     std::shared_ptr<Texture2DObject> m_sceneTexture;
+    std::shared_ptr<Texture2DObject> m_boxTexture;
+
     std::shared_ptr<FramebufferObject> m_sceneFramebuffer;
 
     // Default material

@@ -97,24 +97,54 @@ Model ModelLoader::Load(const char* path)
         aiMesh& meshData = *scene->mMeshes[meshIndex];
         if (!meshData.HasPositions()) continue;
 
-        std::vector<glm::vec4> triangleVertices;
+        std::vector<Triangle> triangles;
+
 
         for (unsigned int i = 0; i < meshData.mNumFaces; i++) {
             aiFace face = meshData.mFaces[i];
-            // Ensure the face is a triangle
+            // Ensure the face is a newTriangle
             if (face.mNumIndices == 3) {
+                Triangle newTriangle;
 
-                for (unsigned int j = 0; j < 3; j++) {
-                    aiVector3D vertex = meshData.mVertices[face.mIndices[j]];
-                    triangleVertices.emplace_back(vertex.x, vertex.y, vertex.z, 0.f);
-                    printf("Vertex: %f, %f, %f \n", vertex.x, vertex.y, vertex.z);
+                newTriangle.v0 = glm::vec4(meshData.mVertices[face.mIndices[0]].x,
+                    meshData.mVertices[face.mIndices[0]].y,
+                    meshData.mVertices[face.mIndices[0]].z, 0.f);
+                newTriangle.v1 = glm::vec4(meshData.mVertices[face.mIndices[1]].x,
+                    meshData.mVertices[face.mIndices[1]].y,
+                    meshData.mVertices[face.mIndices[1]].z, 0.f);
+                newTriangle.v2 = glm::vec4(meshData.mVertices[face.mIndices[2]].x,
+                    meshData.mVertices[face.mIndices[2]].y,
+                    meshData.mVertices[face.mIndices[2]].z, 0.f);
+
+                // Set the UVs for each vertex
+                if (meshData.HasTextureCoords(0)) {
+                    newTriangle.uv0 = glm::vec2(meshData.mTextureCoords[0][face.mIndices[0]].x,
+                        meshData.mTextureCoords[0][face.mIndices[0]].y);
+                    newTriangle.uv1 = glm::vec2(meshData.mTextureCoords[0][face.mIndices[1]].x,
+                        meshData.mTextureCoords[0][face.mIndices[1]].y);
+                    newTriangle.uv2 = glm::vec2(meshData.mTextureCoords[0][face.mIndices[2]].x,
+                        meshData.mTextureCoords[0][face.mIndices[2]].y);
                 }
+
+                // Set the normals for each vertex
+                if (meshData.HasNormals()) {
+                    newTriangle.normal0 = glm::vec4(meshData.mNormals[face.mIndices[0]].x,
+                        meshData.mNormals[face.mIndices[0]].y,
+                        meshData.mNormals[face.mIndices[0]].z, 0.f);
+                    newTriangle.normal1 = glm::vec4(meshData.mNormals[face.mIndices[1]].x,
+                        meshData.mNormals[face.mIndices[1]].y,
+                        meshData.mNormals[face.mIndices[1]].z, 0.f);
+                    newTriangle.normal2 = glm::vec4(meshData.mNormals[face.mIndices[2]].x,
+                        meshData.mNormals[face.mIndices[2]].y,
+                        meshData.mNormals[face.mIndices[2]].z, 0.f);
+                }
+
+                // Add the populated newTriangle to the vector
+                triangles.push_back(newTriangle);
             }
         }
 
-        printf("---------------------------------------------------\n");
-
-        mesh.SetTriangleData(triangleVertices);
+        mesh.SetTriangleData(triangles);
 
         GenerateSubmesh(mesh, meshData);
 

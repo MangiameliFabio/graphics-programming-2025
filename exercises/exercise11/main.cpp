@@ -1,8 +1,7 @@
-#include "MeshRaytracingApplication.h"
-#include "../RayTracingProject/MeshRaytracingApplication.h"
+#include "RaytracingApplication.h"
 
 int main()
 {
-    MeshRaytracingApplication raytracingApplication;
+    RaytracingApplication raytracingApplication;
     return raytracingApplication.Run();
 }
