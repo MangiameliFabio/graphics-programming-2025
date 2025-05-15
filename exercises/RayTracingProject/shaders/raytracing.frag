@@ -76,13 +76,13 @@ vec3 GetRefractedDirection(Ray ray, vec3 normal, float f)
 vec3 GetAlbedo(Material material)
 {
 	// Metals have a black albedo
-	return mix(material.albedo, vec3(0), material.metalness);
+	return mix(material.albedo.xyz, vec3(0), material.metalness);
 }
 
 vec3 GetReflectance(Material material)
 {
 	// We use a fixed value for dielectric, with a typical value for these materials (4%)
-	return mix(vec3(0.04f), material.albedo, material.metalness);
+	return mix(vec3(0.04f), material.albedo.xyz, material.metalness);
 }
 
 // Schlick simplification of the Fresnel term

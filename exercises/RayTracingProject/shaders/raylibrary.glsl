@@ -130,59 +130,48 @@ bool RayTriangleIntersection( vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, inout
     return true;
 }
 
-uniform mat4 MeshMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
-
-// Test intersection between a ray and a meshes
-bool RayMeshIntersection(Ray ray, inout float distance, inout vec3 normal, inout vec2 uv, inout uint material)
+bool RayMeshIntersection(Ray ray, mat4 view, inout float distance, inout vec3 normal, inout vec2 uv, inout uint material)
 {
-	uint transformId = triangles[0].transformId;
-	//mat4 matrix = meshTransforms[transformId];
-	mat4 matrix = MeshMatrix;
-
-	ray.point = (inverse(matrix) * vec4(ray.point, 1)).xyz;
-	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
-
+	uint lastTransformId = uint(-1);
+	mat4 modelMatrix, modelViewMatrix, invModelViewMatrix;
+	Ray localRay;
 	bool hit = false;
 
-	for (int i = 0; i < triangles.length(); i++) {
-		//if (transformId != triangles[i].transformId) {
-		//	transformId = triangles[i].transformId;
-		//	mat4 matrix = meshTransforms[transformId];
+	for (int i = 0; i < triangles.length(); ++i) {
+		uint currentTransformId = triangles[i].transformId;
 
-		//	ray.point = (inverse(matrix) * vec4(ray.point, 1)).xyz;
-		//	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
-		//}
-		
-        vec3 v0 = triangles[i].v0.xyz;
-        vec3 v1 = triangles[i].v1.xyz;
-        vec3 v2 = triangles[i].v2.xyz;
+		if (currentTransformId != lastTransformId) {
+			lastTransformId = currentTransformId;
+			modelMatrix = meshTransforms[currentTransformId];
+			modelViewMatrix = view * modelMatrix;
+			invModelViewMatrix = inverse(modelViewMatrix);
+
+			localRay.point = (invModelViewMatrix * vec4(ray.point, 1.0)).xyz;
+			localRay.direction = normalize((invModelViewMatrix * vec4(ray.direction, 0.0)).xyz);
+		}
+
+		vec3 v0 = triangles[i].v0.xyz;
+		vec3 v1 = triangles[i].v1.xyz;
+		vec3 v2 = triangles[i].v2.xyz;
 
 		vec2 uv0 = triangles[i].uv0;
-        vec2 uv1 = triangles[i].uv1;
-        vec2 uv2 = triangles[i].uv2;
+		vec2 uv1 = triangles[i].uv1;
+		vec2 uv2 = triangles[i].uv2;
 
-		float t;
-		float u;
-		float v;
+		float t, u, v;
+		if (RayTriangleIntersection(localRay.point, localRay.direction, v0, v1, v2, t, u, v) && t < distance) {
+			distance = t;
+			hit = true;
 
-        if (RayTriangleIntersection(ray.point, ray.direction, v0, v1, v2, t, u, v)) {
-            if (t < distance) {
-                distance = t;
-                hit = true;
+			vec3 n0 = triangles[i].normal0.xyz;
+			vec3 n1 = triangles[i].normal1.xyz;
+			vec3 n2 = triangles[i].normal2.xyz;
 
-				normal = triangles[i].normal0.xyz * triangles[i].normal1.xyz * triangles[i].normal2.xyz;
-
-				uv = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
-
-				material = triangles[i].materialId;
-            }
-        }
-    }
-
-	if (hit)
-	{
-		normalize(normal);
-		normal = (matrix * vec4(normal, 0)).xyz;
+			vec3 localNormal = normalize(n0 * (1.0 - u - v) + n1 * u + n2 * v);
+			normal = normalize((modelViewMatrix * vec4(localNormal, 0.f)).xyz);
+			uv = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
+			material = triangles[i].materialId;
+		}
 	}
 
 	return hit;

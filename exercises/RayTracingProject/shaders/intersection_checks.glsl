@@ -7,6 +7,7 @@ uniform float SphereRadius = 1.25f;
 uniform vec3 BoxColor = vec3(1, 0, 0);
 uniform mat4 BoxMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
 uniform vec3 BoxSize = vec3(1, 1, 1);
+uniform mat4 MeshMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
 
 uniform vec3 MeshColor = vec3(1, 0, 0);
 
@@ -22,7 +23,10 @@ uniform vec3 LightColor = vec3(1.0f);
 uniform float LightIntensity = 4.0f;
 uniform vec2 LightSize = vec2(3.0f);
 
-uniform sampler2D BoxTexture;
+uniform sampler2D WoodTexture;
+uniform sampler2D WallTexture;
+uniform sampler2D FloorTexture;
+uniform sampler2D MonaTexture;
 
 const vec3 CornellBoxSize = vec3(10.0f);
 
@@ -32,15 +36,6 @@ uniform mat4 ViewMatrix;
 
 struct Material
 {
-	vec3 albedo;
-	float roughness;
-	float metalness;
-	float ior;
-	vec3 emissive;
-};
-
-struct MaterialData
-{
 	uint materialId;
 	float roughness;
 	float metalness;
@@ -49,26 +44,33 @@ struct MaterialData
 	vec4 emissive;
 };
 
-//layout(binding = 3, std430) readonly buffer MaterialBuffer {
-//    MaterialData Materials[];
-//};
+layout(binding = 3, std430) readonly buffer MaterialBuffer {
+    Material Materials[];
+};
 
-layout(binding = 4) uniform sampler2DArray textureArray;
+uniform sampler2DArray TextureArray;
 
-Material SphereMaterial = Material(SphereColor, SphereRoughness, SphereMetalness, /* ior */0.f, /* emissive */ vec3(0.0f));
-Material BoxMaterial = Material(BoxColor, BoxRoughness, BoxMetalness, /* ior */1.1f, /* emissive */vec3(0.0f));
-Material MeshMaterial = Material(MeshColor, MeshRoughness, MeshMetalness, /* ior */0.f, /* emissive */vec3(0.0f));
+Material SphereMaterial = Material(99, SphereRoughness, SphereMetalness, 0.f, vec4(SphereColor, 0.f), vec4(0.0f));
+Material BoxMaterial = Material(100, BoxRoughness, BoxMetalness, 1.1f, vec4(BoxColor, 0.f),  vec4(0.0f));
+Material MeshMaterial = Material(101, MeshRoughness, MeshMetalness, 0.f, vec4(MeshColor, 0.f), vec4(0.0f));
 
-Material CornellMaterial = Material(/* color */vec3(1.0f), /* roughness */0.75f, /* metalness */0.0f, /* ior */0.0f, /* emissive */vec3(0.0f));
-Material LightMaterial = Material(vec3(0.0f), 0.0f, 0.0f, 0.0f, /* emissive */LightIntensity * LightColor);
+Material CornellMaterial = Material(102, 0.75f, 0.0f, 0.0f, vec4(1.0f), vec4(0.0f));
+Material LightMaterial = Material(103, 0.0f, 0.0f, 0.0f, vec4(0.0f), vec4(LightIntensity * LightColor, 0.f));
 
 // Forward declare ProcessOutput function
 vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material);
 
-vec4 GetColorFromTexture(uint layer, vec2 uv) {
+vec4 GetColorFromTexture(sampler2D sampler, vec2 uv) {
     uv = clamp(uv, vec2(0.0), vec2(1.0));
     
-    return texture(textureArray, vec3(uv, layer));
+    return texture(sampler, uv);
+}
+
+vec4 GetColorFromTextureArray(vec2 uv, uint layer) {
+	
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+    
+    return texture(TextureArray, vec3(uv, layer));
 }
 
 // Main function for casting rays: Defines the objects in the scene
@@ -76,42 +78,32 @@ vec3 CastRay(Ray ray, inout float distance)
 {
 	Material material;
 	vec3 normal;
-	vec2 uvCoords;
-
-	// Cornell box
-	if (RayBoxIntersection(ray, ViewMatrix, CornellBoxSize, distance, normal))
-	{
-		material = CornellMaterial;
-
-		// Find local coordinates to paint the faces
-		vec3 localPoint = TransformToLocalPoint(ray.point + ray.direction * distance, ViewMatrix);
-		vec3 localPointAbs = abs(localPoint);
-
-		// X axis: Left (red) and right (green)
-		if (localPointAbs.x > localPointAbs.y && localPointAbs.x > localPointAbs.z)
-			material.albedo = localPoint.x < 0 ? vec3(1.0f, 0.1f, 0.1f) : vec3(0.1f, 1.0f, 0.1f);
-		// Y axis: Top (light)
-		else if (localPoint.y > localPointAbs.x && localPoint.y > localPointAbs.z && localPointAbs.x < LightSize.x && localPointAbs.z < LightSize.y)
-			material = LightMaterial;
-		// Z axis: Front (black)
-		else if (localPoint.z > localPointAbs.x && localPoint.z > localPointAbs.y)
-			material.albedo = vec3(0);
-	}
+	vec2 uv;
+	uint materialId;
 
 	// Sphere
 	if (RaySphereIntersection(ray, SphereCenter, SphereRadius, distance, normal))
 	{
-		material = SphereMaterial;
+		material = LightMaterial;
 	}
 
-	uint materialId;
-
 	// Mesh
-	if (RayMeshIntersection(ray, distance, normal, uvCoords, materialId))
+	if (RayMeshIntersection(ray, ViewMatrix, distance, normal, uv, materialId))
 	{
-		material = SphereMaterial;
-		//material.metalness = Materials[materialId].metalness;
-		//material.albedo *= GetColorFromTexture(materialId, uvCoords).xyz;
+		material = Materials[materialId];
+
+		if (materialId == 1) 
+		{
+			material.albedo *= GetColorFromTexture(WallTexture, uv);
+		}
+		if (materialId == 2) 
+		{
+			material.albedo *= GetColorFromTexture(FloorTexture, uv);
+		}
+		if (materialId == 3)
+		{
+			material.albedo *= GetColorFromTexture(MonaTexture, uv);
+		}
 	}
 
 	// We check if normal == vec3(0) to detect if there was a hit
@@ -173,11 +165,11 @@ vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material)
 	PushRay(specularRay);
 
 	// Return emissive light, after applying the ray color filter
-	return max(vec3(0.f), ray.colorFilter * material.emissive);
+	return max(vec3(0.f), ray.colorFilter * material.emissive.xyz);
 }
 
 // Configure ray tracer
 void GetRayTracerConfig(out uint maxRays)
 {
-	maxRays = 14u;
+	maxRays = 24u;
 }

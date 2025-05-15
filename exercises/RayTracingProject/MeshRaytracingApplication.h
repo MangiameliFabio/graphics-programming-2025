@@ -6,8 +6,11 @@
 #include <ituGL/camera/CameraController.h>
 #include <ituGL/utils/DearImGui.h>
 
+#include "glm/ext/matrix_transform.hpp"
 #include "ituGL/geometry/ShaderStorageBufferObject.h"
 #include "ituGL/scene/Scene.h"
+
+class ModelLoader;
 
 struct RaytracingMaterial {
     RaytracingMaterial(const unsigned int materialId, glm::vec4 albedo = glm::vec4(0.f), const float roughness = 0.f, const float metallic = 0.f,
@@ -59,6 +62,8 @@ private:
 
     void RenderGUI();
     void SendTexturesToShader(GLuint textures[20]);
+    std::shared_ptr<Texture2DObject> LoadTexture(const char* path);
+    void LoadModel(ModelLoader& loader, const char* path, unsigned int materialId = 0, glm::mat4 transform = glm::mat4(1.0f));
 
 private:
     // Helper object for debug GUI
@@ -108,4 +113,6 @@ private:
 
     // Global scene
     Scene m_scene;
+
+    GLuint texture;
 };

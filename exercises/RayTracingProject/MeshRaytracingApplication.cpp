@@ -24,9 +24,34 @@ MeshRaytracingApplication::MeshRaytracingApplication()
     : Application(1024, 1024, "Ray-tracing demo")
     , m_renderer(GetDevice())
     , m_frameCount(0)
-    , m_sphereCenter(-3, 0, 0)
+    , m_sphereCenter(0, 4, 5)
     , m_boxMatrix(glm::translate(glm::vec3(3, 0, 0)))
+    , m_meshMatrix(glm::translate(glm::vec3(0, 0, 0)))
 {
+}
+
+std::shared_ptr<Texture2DObject> MeshRaytracingApplication::LoadTexture(const char* path)
+{
+    std::shared_ptr<Texture2DObject> texture = std::make_shared<Texture2DObject>();
+
+    int width = 0;
+    int height = 0;
+    int components = 0;
+
+    // Load the texture data here
+    unsigned char* data = stbi_load(path, &width, &height, &components, 4);
+    stbi_set_flip_vertically_on_load(true);
+
+    texture->Bind();
+    texture->SetImage(0, width, height, TextureObject::FormatRGBA, TextureObject::InternalFormatRGBA, std::span<const unsigned char>(data, width * height * 4));
+
+    // Generate mipmaps
+    texture->GenerateMipmap();
+
+    // Release texture data
+    stbi_image_free(data);
+
+    return texture;
 }
 
 void MeshRaytracingApplication::Initialize()
@@ -42,7 +67,7 @@ void MeshRaytracingApplication::Initialize()
     InitializeRenderer();
     InitializeModels();
     InitializeSSBO();
-    InitializeTextureArray();
+    //InitializeTextureArray();
 }
 
 void MeshRaytracingApplication::Update()
@@ -103,7 +128,7 @@ void MeshRaytracingApplication::InitializeCamera()
 {
     // Create the main camera
     std::shared_ptr<Camera> camera = std::make_shared<Camera>();
-    camera->SetViewMatrix(glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0));
+    camera->SetViewMatrix(glm::vec3(0, 2.0f, 0), glm::vec3(0.0f, 2.3, -7), glm::vec3(0.0f, 1.0f, 0.0));
     float fov = 1.57f;
     camera->SetPerspectiveProjectionMatrix(fov, GetMainWindow().GetAspectRatio(), 0.1f, 100.0f);
 
@@ -116,17 +141,14 @@ void MeshRaytracingApplication::InitializeCamera()
 
 void MeshRaytracingApplication::InitializeMaterial()
 {
-    m_textureFiles.emplace_back("models/Box.jpg");
-    m_materials.emplace_back(0);
-
     m_material = CreateRaytracingMaterial("shaders/intersection_checks.glsl");
 
     // Initialize material uniforms
     m_material->SetUniformValue("SphereCenter", m_sphereCenter);
     m_material->SetUniformValue("SphereRadius", 1.25f);
-    m_material->SetUniformValue("SphereColor", glm::vec3(0, 0, 1));
+    m_material->SetUniformValue("SphereColor", glm::vec3(1.f));
     m_material->SetUniformValue("SphereRoughness", 0.f);
-    m_material->SetUniformValue("SphereMetalness", 0.f);
+    m_material->SetUniformValue("SphereMetalness", 1.f);
 
     m_material->SetUniformValue("BoxMatrix", m_boxMatrix);
     m_material->SetUniformValue("BoxSize", glm::vec3(1, 1, 1));
@@ -142,6 +164,17 @@ void MeshRaytracingApplication::InitializeMaterial()
     m_material->SetUniformValue("LightColor", glm::vec3(1.0f));
     m_material->SetUniformValue("LightIntensity", 4.0f);
     m_material->SetUniformValue("LightSize", glm::vec2(3.0f));
+
+    m_materials.emplace_back(0, glm::vec4(glm::vec4(1, 0, 0,0)), 0.5f,0.f,1.1f);
+
+    m_material->SetUniformValue("WallTexture", LoadTexture("models/Wall.jpg"));
+    m_materials.emplace_back(1, glm::vec4(1.f), 1.f);
+
+    m_material->SetUniformValue("FloorTexture", LoadTexture("models/Floor.jpg"));
+    m_materials.emplace_back(2, glm::vec4(1.f), 0.1f, 0.25f);
+
+    m_material->SetUniformValue("MonaTexture", LoadTexture("models/Mona.jpg"));
+    m_materials.emplace_back(3, glm::vec4(1.f), 1.f, 0.f);
 
     //m_material->SetBlendEquation(Material::BlendEquation::None);
 
@@ -185,14 +218,26 @@ void MeshRaytracingApplication::InitializeModels()
     // Configure loader
     ModelLoader loader(m_material);
 
-    std::shared_ptr<Model> boxModel = loader.LoadShared("models/Box.obj");
-    m_transforms.push_back(glm::translate(glm::vec3(3, -3, 0)));
+    LoadModel(loader, "models/Box.obj", 0, glm::translate(glm::vec3(1.0f, 2.3, -3)) * glm::scale(glm::vec3(0.75f)));
+    LoadModel(loader, "models/Wall_East.obj", 1);
+    LoadModel(loader, "models/Wall_West.obj", 1);
+    LoadModel(loader, "models/Wall_South.obj", 1);
+    LoadModel(loader, "models/Wall_North.obj", 1);
+    LoadModel(loader, "models/Ceiling.obj", 1);
+    LoadModel(loader, "models/Floor.obj", 2);
+    LoadModel(loader, "models/Mona.obj", 3);
+}
+
+void MeshRaytracingApplication::LoadModel(ModelLoader &loader, const char* path, unsigned int materialId, glm::mat4 transform)
+{
+    std::shared_ptr<Model> model = loader.LoadShared(path);
+    m_transforms.push_back(transform);
     int transformId = m_transforms.size() - 1;
 
-    boxModel->GetMesh().SetTriangleMaterialID(0);
-    boxModel->GetMesh().SetTriangleTransformID(transformId);
+    model->GetMesh().SetTriangleMaterialID(materialId);
+    model->GetMesh().SetTriangleTransformID(transformId);
 
-    m_models.push_back(boxModel);
+    m_models.push_back(model);
 }
 
 void MeshRaytracingApplication::InitializeSSBO()
@@ -221,48 +266,6 @@ void MeshRaytracingApplication::InitializeSSBO()
     m_ssboMaterials.BindSSBO(3);
 
     ShaderStorageBufferObject::Unbind();
-}
-
-void MeshRaytracingApplication::InitializeTextureArray() {
-    int channels;
-    int width, height;
-
-    unsigned char* data = stbi_load(m_textureFiles[0].c_str(), &width, &height, &channels, 4);
-    if (!data) {
-        std::cerr << "Failed to load texture: " << m_textureFiles[0] << std::endl;
-        return;
-    }
-    stbi_image_free(data);
-
-    GLuint textureID;
-    glGenTextures(1, &textureID);
-    glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, textureID);
-
-    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, width, height, m_textureFiles.size(), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-    for (size_t i = 0; i < m_textureFiles.size(); ++i) {
-        data = stbi_load(m_textureFiles[i].c_str(), &width, &height, &channels, 4);
-        if (!data) {
-            std::cerr << "Failed to load texture: " << m_textureFiles[i] << std::endl;
-            glDeleteTextures(1, &textureID);
-            return;
-        }
-
-        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, data);
-        stbi_image_free(data);
-    }
-
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    GLint location = glGetUniformLocation(m_shaderProgramPtr->GetHandle(), "textureArray");
-    glUseProgram(m_shaderProgramPtr->GetHandle());
-    glUniform1i(location, 4);
 }
 
 std::shared_ptr<Material> MeshRaytracingApplication::CreateRaytracingMaterial(const char* fragmentShaderPath)
@@ -325,9 +328,9 @@ void MeshRaytracingApplication::RenderGUI()
     //    {
     //        changed |= ImGui::DragFloat3("Center", &m_sphereCenter[0], 0.1f);
     //        changed |= ImGui::DragFloat("Radius", m_material->GetDataUniformPointer<float>("SphereRadius"), 0.1f);
-    //        changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("SphereColor"));
-    //        changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("SphereMetalness"), 0.01, 0.f, 1.f);
-    //        changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("SphereRoughness"), 0.01, 0.f, 1.f);
+    //        //changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("SphereColor"));
+    //        //changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("SphereMetalness"), 0.01, 0.f, 1.f);
+    //        //changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("SphereRoughness"), 0.01, 0.f, 1.f);
     //        
     //        ImGui::TreePop();
     //    }
@@ -345,23 +348,23 @@ void MeshRaytracingApplication::RenderGUI()
 
     //        ImGui::TreePop();
     //    }*/
-    //    if (ImGui::TreeNodeEx("Mesh", ImGuiTreeNodeFlags_DefaultOpen))
-    //    {
-    //        static glm::vec3 translation(3, -3, 0);
-    //        static glm::vec3 rotation(0.0f);
+    //    //if (ImGui::TreeNodeEx("Mesh", ImGuiTreeNodeFlags_DefaultOpen))
+    //    //{
+    //    //    static glm::vec3 translation(3, -3, 0);
+    //    //    static glm::vec3 rotation(0.0f);
 
-    //        changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
-    //        changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
-    //        changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("MeshColor"));
-    //        changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("MeshMetalness"), 0.01, 0.f, 1.f);
-    //        changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("MeshRoughness"), 0.01, 0.f, 1.f);
-    //        m_meshMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
+    //    //    //changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
+    //    //    //changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
+    //    //    //changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("MeshColor"));
+    //    //    //changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("MeshMetalness"), 0.01, 0.f, 1.f);
+    //    //    //changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("MeshRoughness"), 0.01, 0.f, 1.f);
+    //    //    m_meshMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
 
-    //        ImGui::TreePop();
-    //    }
+    //    //    ImGui::TreePop();
+    //    //}
     //    if (ImGui::TreeNodeEx("Light", ImGuiTreeNodeFlags_DefaultOpen))
     //    {
-    //        changed |= ImGui::DragFloat2("Size", m_material->GetDataUniformPointer<float>("LightSize"), 0.1f);
+    //        //changed |= ImGui::DragFloat2("Size", m_material->GetDataUniformPointer<float>("LightSize"), 0.1f);
     //        changed |= ImGui::DragFloat("Intensity", m_material->GetDataUniformPointer<float>("LightIntensity"), 0.1f);
     //        changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("LightColor"));
 
@@ -376,3 +379,55 @@ void MeshRaytracingApplication::RenderGUI()
 
     //m_imGui.EndFrame();
 }
+
+//void MeshRaytracingApplication::InitializeTextureArray() {
+//    if (m_textureFiles.empty()) {
+//        std::cerr << "No file paths provided for texture array.\n";
+//        return;
+//    }
+//
+//    int width, height, channels;
+//    stbi_set_flip_vertically_on_load(true); // Optional, depending on your texture orientation
+//
+//    // Load the first image to get dimensions and format
+//    unsigned char* data = stbi_load(m_textureFiles[0].c_str(), &width, &height, &channels, STBI_rgb_alpha);
+//    if (!data) {
+//        std::cerr << "Failed to load texture: " << m_textureFiles[0] << "\n";
+//        return;
+//    }
+//    stbi_image_free(data); // We'll reload each image in the loop below
+//
+//    glGenTextures(1, &texture);
+//    glBindTexture(GL_TEXTURE_2D_ARRAY, texture);
+//
+//    GLsizei layerCount = static_cast<GLsizei>(m_textureFiles.size());
+//    glTexImage3D(texture, 0, GL_RGBA8, width, height, layerCount, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+//
+//    for (GLsizei i = 0; i < layerCount; ++i) {
+//        data = stbi_load(m_textureFiles[i].c_str(), &width, &height, &channels, STBI_rgb_alpha);
+//        if (!data) {
+//            std::cerr << "Failed to load texture: " << m_textureFiles[i] << "\n";
+//            glDeleteTextures(1, &texture);
+//            return;
+//        }
+//
+//        glTexSubImage3D(
+//            texture,
+//            0,                // mipmap level
+//            0, 0, i,          // x, y, z offset
+//            width, height, 1, // width, height, depth (one layer)
+//            GL_RGBA,
+//            GL_UNSIGNED_BYTE,
+//            data
+//        );
+//        stbi_image_free(data);
+//    }
+//
+//    // Set texture parameters
+//    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+//    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+//
+//    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+//}

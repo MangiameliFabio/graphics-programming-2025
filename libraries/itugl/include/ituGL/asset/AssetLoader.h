@@ -69,20 +69,20 @@ std::shared_ptr<T> AssetLoader<T>::LoadShared(const char* path)
     {
         // Try to find the asset on the previously loaded
         std::string pathString(path);
-        auto itAsset = m_sharedAssets.find(pathString);
+        /*auto itAsset = m_sharedAssets.find(pathString);
         if (itAsset != m_sharedAssets.end())
         {
             t = itAsset->second;
         }
         else
+        {*/
+        // If not found, create a new one
+        t = std::make_shared<T>(Load(path));
+        if (m_keepShared)
         {
-            // If not found, create a new one
-            t = std::make_shared<T>(Load(path));
-            if (m_keepShared)
-            {
-                m_sharedAssets.insert(std::make_pair(pathString, t));
-            }
+            m_sharedAssets.insert(std::make_pair(pathString, t));
         }
+        //}
     }
     return t;
 }
