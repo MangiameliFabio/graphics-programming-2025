@@ -18,10 +18,13 @@ public:
     void AllocateData(std::span<const T> data, Usage usage = Usage::StaticDraw);
     template<typename T>
     inline void AllocateData(std::span<T> data, Usage usage = Usage::StaticDraw) { AllocateData(std::span<const T>(data), usage); }
+    inline void AllocateData(size_t size, const void* data, Usage usage = Usage::StaticDraw);
 
     // UpdateData template method for any type of data span. Type must be one of the supported types
     template<typename T>
     void UpdateData(std::span<const T> data, size_t offsetBytes = 0);
+
+    void BindSSBO(int index);
 };
 
 // Call the base implementation with the buffer size, computed with elementCount and size of T
@@ -36,6 +39,13 @@ template<typename T>
 void ShaderStorageBufferObject::AllocateData(std::span<const T> data, Usage usage)
 {
     BufferObject::AllocateData(Data::GetBytes(data), usage);
+}
+
+void ShaderStorageBufferObject::AllocateData(size_t size, const void* data, Usage usage)
+{
+    assert(IsBound());
+    Target target = GetTarget();
+    glBufferData(target, size, data, usage);
 }
 
 // Call the base implementation with the span converted to bytes

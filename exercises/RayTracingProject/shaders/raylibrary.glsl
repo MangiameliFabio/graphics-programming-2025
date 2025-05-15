@@ -12,12 +12,15 @@ struct Triangle {
     vec2 uv2;
 
     uint materialId;
-    uint padding;
+    uint transformId;
 };
 
-
-layout(binding = 0, std430) readonly buffer Triangles {
+layout(binding = 1, std430) readonly buffer Triangles {
     Triangle triangles[];
+};
+
+layout(binding = 2, std430) readonly buffer MeshTransforms {
+    mat4 meshTransforms[];
 };
 
 // Test intersection between a ray and a sphere
@@ -127,15 +130,29 @@ bool RayTriangleIntersection( vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, inout
     return true;
 }
 
+uniform mat4 MeshMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
+
 // Test intersection between a ray and a meshes
-bool RayMeshIntersection(Ray ray, mat4 matrix, inout float distance, inout vec3 normal, inout vec2 uv)
+bool RayMeshIntersection(Ray ray, inout float distance, inout vec3 normal, inout vec2 uv, inout uint material)
 {
+	uint transformId = triangles[0].transformId;
+	//mat4 matrix = meshTransforms[transformId];
+	mat4 matrix = MeshMatrix;
+
 	ray.point = (inverse(matrix) * vec4(ray.point, 1)).xyz;
 	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
 
 	bool hit = false;
 
 	for (int i = 0; i < triangles.length(); i++) {
+		//if (transformId != triangles[i].transformId) {
+		//	transformId = triangles[i].transformId;
+		//	mat4 matrix = meshTransforms[transformId];
+
+		//	ray.point = (inverse(matrix) * vec4(ray.point, 1)).xyz;
+		//	ray.direction = (inverse(matrix) * vec4(ray.direction, 0)).xyz;
+		//}
+		
         vec3 v0 = triangles[i].v0.xyz;
         vec3 v1 = triangles[i].v1.xyz;
         vec3 v2 = triangles[i].v2.xyz;
@@ -156,6 +173,8 @@ bool RayMeshIntersection(Ray ray, mat4 matrix, inout float distance, inout vec3 
 				normal = triangles[i].normal0.xyz * triangles[i].normal1.xyz * triangles[i].normal2.xyz;
 
 				uv = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
+
+				material = triangles[i].materialId;
             }
         }
     }

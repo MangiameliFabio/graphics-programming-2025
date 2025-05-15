@@ -11,6 +11,7 @@
 #include <ituGL/renderer/PostFXRenderPass.h>
 #include <ituGL/scene/RendererSceneVisitor.h>
 #include <imgui.h>
+#include <iostream>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/euler_angles.hpp>
 
@@ -25,7 +26,6 @@ MeshRaytracingApplication::MeshRaytracingApplication()
     , m_frameCount(0)
     , m_sphereCenter(-3, 0, 0)
     , m_boxMatrix(glm::translate(glm::vec3(3, 0, 0)))
-    , m_meshMatrix(glm::translate(glm::vec3(3, -3, 0)))
 {
 }
 
@@ -40,47 +40,9 @@ void MeshRaytracingApplication::Initialize()
     InitializeMaterial();
     InitializeFramebuffer();
     InitializeRenderer();
-
-    // Configure loader
-    ModelLoader loader(m_material);
-
-    std::shared_ptr<Model> boxModel = loader.LoadShared("models/Box.obj");
-    m_scene.AddSceneNode(std::make_shared<SceneModel>("box model", boxModel));
-
-    Mesh* mesh = &boxModel->GetMesh();
-    std::vector<Triangle> triangleVertices = mesh->GetTriangleData();
-
-    m_ssbo.Bind();
-    m_ssbo.AllocateData(std::span(triangleVertices), BufferObject::Usage::StaticDraw);
-    const GLuint handle = m_ssbo.GetHandle();
-
-    // Bind SSBO to binding point 0
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, handle);
-
-    ShaderStorageBufferObject::Unbind();
-}
-
-std::shared_ptr<Texture2DObject> MeshRaytracingApplication::LoadTexture(const char* path)
-{
-    std::shared_ptr<Texture2DObject> texture = std::make_shared<Texture2DObject>();
-
-    int width = 0;
-    int height = 0;
-    int components = 0;
-
-    // Load the texture data here
-    unsigned char* data = stbi_load(path, &width, &height, &components, 4);
-
-    texture->Bind();
-    texture->SetImage(0, width, height, TextureObject::FormatRGBA, TextureObject::InternalFormatRGBA, std::span<const unsigned char>(data, width * height * 4));
-
-    // Generate mipmaps
-    texture->GenerateMipmap();
-
-    // Release texture data
-    stbi_image_free(data);
-
-    return texture;
+    InitializeModels();
+    InitializeSSBO();
+    InitializeTextureArray();
 }
 
 void MeshRaytracingApplication::Update()
@@ -154,11 +116,10 @@ void MeshRaytracingApplication::InitializeCamera()
 
 void MeshRaytracingApplication::InitializeMaterial()
 {
+    m_textureFiles.emplace_back("models/Box.jpg");
+    m_materials.emplace_back(0);
+
     m_material = CreateRaytracingMaterial("shaders/intersection_checks.glsl");
-
-    m_boxTexture = LoadTexture("models/Box.jpg");
-
-    m_material->SetUniformValue("BoxTexture", m_boxTexture);
 
     // Initialize material uniforms
     m_material->SetUniformValue("SphereCenter", m_sphereCenter);
@@ -219,6 +180,91 @@ void MeshRaytracingApplication::InitializeRenderer()
     m_renderer.AddRenderPass(std::make_unique<PostFXRenderPass>(copyMaterial, m_renderer.GetDefaultFramebuffer()));
 }
 
+void MeshRaytracingApplication::InitializeModels()
+{
+    // Configure loader
+    ModelLoader loader(m_material);
+
+    std::shared_ptr<Model> boxModel = loader.LoadShared("models/Box.obj");
+    m_transforms.push_back(glm::translate(glm::vec3(3, -3, 0)));
+    int transformId = m_transforms.size() - 1;
+
+    boxModel->GetMesh().SetTriangleMaterialID(0);
+    boxModel->GetMesh().SetTriangleTransformID(transformId);
+
+    m_models.push_back(boxModel);
+}
+
+void MeshRaytracingApplication::InitializeSSBO()
+{
+    std::vector<Triangle> collectedTriangleData;
+	for (const auto& model : m_models)
+	{
+        const std::vector<Triangle>& meshData = model->GetMesh().GetTriangleData();
+        collectedTriangleData.insert(collectedTriangleData.end(), meshData.begin(), meshData.end());
+	}
+
+    m_ssboTriangles.Bind();
+    m_ssboTriangles.AllocateData(std::span(collectedTriangleData), BufferObject::Usage::StaticDraw);
+    m_ssboTriangles.BindSSBO(1);
+
+    ShaderStorageBufferObject::Unbind();
+
+    m_ssboTransforms.Bind();
+    m_ssboTransforms.AllocateData(std::span(m_transforms), BufferObject::Usage::StaticDraw);
+    m_ssboTransforms.BindSSBO(2);
+
+    ShaderStorageBufferObject::Unbind();
+
+    m_ssboMaterials.Bind();
+    m_ssboMaterials.AllocateData(sizeof(RaytracingMaterial) * m_materials.size(), m_materials.data(), BufferObject::Usage::StaticDraw);
+    m_ssboMaterials.BindSSBO(3);
+
+    ShaderStorageBufferObject::Unbind();
+}
+
+void MeshRaytracingApplication::InitializeTextureArray() {
+    int channels;
+    int width, height;
+
+    unsigned char* data = stbi_load(m_textureFiles[0].c_str(), &width, &height, &channels, 4);
+    if (!data) {
+        std::cerr << "Failed to load texture: " << m_textureFiles[0] << std::endl;
+        return;
+    }
+    stbi_image_free(data);
+
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, textureID);
+
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, width, height, m_textureFiles.size(), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    for (size_t i = 0; i < m_textureFiles.size(); ++i) {
+        data = stbi_load(m_textureFiles[i].c_str(), &width, &height, &channels, 4);
+        if (!data) {
+            std::cerr << "Failed to load texture: " << m_textureFiles[i] << std::endl;
+            glDeleteTextures(1, &textureID);
+            return;
+        }
+
+        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        stbi_image_free(data);
+    }
+
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    GLint location = glGetUniformLocation(m_shaderProgramPtr->GetHandle(), "textureArray");
+    glUseProgram(m_shaderProgramPtr->GetHandle());
+    glUniform1i(location, 4);
+}
+
 std::shared_ptr<Material> MeshRaytracingApplication::CreateRaytracingMaterial(const char* fragmentShaderPath)
 {
     // We could keep this vertex shader and reuse it, but it looks simpler this way
@@ -237,11 +283,11 @@ std::shared_ptr<Material> MeshRaytracingApplication::CreateRaytracingMaterial(co
 	fragmentShaderPaths.push_back("shaders/raytracing.frag");
     Shader fragmentShader = ShaderLoader(Shader::FragmentShader).Load(fragmentShaderPaths);
 
-    std::shared_ptr<ShaderProgram> shaderProgramPtr = std::make_shared<ShaderProgram>();
-    shaderProgramPtr->Build(vertexShader, fragmentShader);
+    m_shaderProgramPtr = std::make_shared<ShaderProgram>();
+    m_shaderProgramPtr->Build(vertexShader, fragmentShader);
 
     // Create material
-    std::shared_ptr<Material> material = std::make_shared<Material>(shaderProgramPtr);
+    std::shared_ptr<Material> material = std::make_shared<Material>(m_shaderProgramPtr);
     return material;
 }
 
@@ -269,64 +315,64 @@ std::shared_ptr<Material> MeshRaytracingApplication::CreateCopyMaterial()
 
 void MeshRaytracingApplication::RenderGUI()
 {
-    m_imGui.BeginFrame();
+    //m_imGui.BeginFrame();
 
-    bool changed = false;
+    //bool changed = false;
 
-    if (auto window = m_imGui.UseWindow("Scene parameters"))
-    {
-        if (ImGui::TreeNodeEx("Sphere", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            changed |= ImGui::DragFloat3("Center", &m_sphereCenter[0], 0.1f);
-            changed |= ImGui::DragFloat("Radius", m_material->GetDataUniformPointer<float>("SphereRadius"), 0.1f);
-            changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("SphereColor"));
-            changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("SphereMetalness"), 0.01, 0.f, 1.f);
-            changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("SphereRoughness"), 0.01, 0.f, 1.f);
-            
-            ImGui::TreePop();
-        }
-        /*if (ImGui::TreeNodeEx("Box", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            static glm::vec3 translation(3, 0, 0);
-            static glm::vec3 rotation(0.0f);
+    //if (auto window = m_imGui.UseWindow("Scene parameters"))
+    //{
+    //    if (ImGui::TreeNodeEx("Sphere", ImGuiTreeNodeFlags_DefaultOpen))
+    //    {
+    //        changed |= ImGui::DragFloat3("Center", &m_sphereCenter[0], 0.1f);
+    //        changed |= ImGui::DragFloat("Radius", m_material->GetDataUniformPointer<float>("SphereRadius"), 0.1f);
+    //        changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("SphereColor"));
+    //        changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("SphereMetalness"), 0.01, 0.f, 1.f);
+    //        changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("SphereRoughness"), 0.01, 0.f, 1.f);
+    //        
+    //        ImGui::TreePop();
+    //    }
+    //    /*if (ImGui::TreeNodeEx("Box", ImGuiTreeNodeFlags_DefaultOpen))
+    //    {
+    //        static glm::vec3 translation(3, 0, 0);
+    //        static glm::vec3 rotation(0.0f);
 
-            changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
-            changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
-            changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("BoxColor"));
-            changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("BoxMetalness"), 0.01, 0.f, 1.f);
-            changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("BoxRoughness"), 0.01, 0.f, 1.f);
-            m_boxMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
+    //        changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
+    //        changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
+    //        changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("BoxColor"));
+    //        changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("BoxMetalness"), 0.01, 0.f, 1.f);
+    //        changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("BoxRoughness"), 0.01, 0.f, 1.f);
+    //        m_boxMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
 
-            ImGui::TreePop();
-        }*/
-        if (ImGui::TreeNodeEx("Mesh", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            static glm::vec3 translation(3, -3, 0);
-            static glm::vec3 rotation(0.0f);
+    //        ImGui::TreePop();
+    //    }*/
+    //    if (ImGui::TreeNodeEx("Mesh", ImGuiTreeNodeFlags_DefaultOpen))
+    //    {
+    //        static glm::vec3 translation(3, -3, 0);
+    //        static glm::vec3 rotation(0.0f);
 
-            changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
-            changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
-            changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("MeshColor"));
-            changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("MeshMetalness"), 0.01, 0.f, 1.f);
-            changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("MeshRoughness"), 0.01, 0.f, 1.f);
-            m_meshMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
+    //        changed |= ImGui::DragFloat3("Translation", &translation[0], 0.1f);
+    //        changed |= ImGui::DragFloat3("Rotation", &rotation[0], 0.1f);
+    //        changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("MeshColor"));
+    //        changed |= ImGui::DragFloat("Metalness", m_material->GetDataUniformPointer<float>("MeshMetalness"), 0.01, 0.f, 1.f);
+    //        changed |= ImGui::DragFloat("Roughness", m_material->GetDataUniformPointer<float>("MeshRoughness"), 0.01, 0.f, 1.f);
+    //        m_meshMatrix = glm::translate(translation) * glm::eulerAngleXYZ(rotation.x, rotation.y, rotation.z);
 
-            ImGui::TreePop();
-        }
-        if (ImGui::TreeNodeEx("Light", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            changed |= ImGui::DragFloat2("Size", m_material->GetDataUniformPointer<float>("LightSize"), 0.1f);
-            changed |= ImGui::DragFloat("Intensity", m_material->GetDataUniformPointer<float>("LightIntensity"), 0.1f);
-            changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("LightColor"));
+    //        ImGui::TreePop();
+    //    }
+    //    if (ImGui::TreeNodeEx("Light", ImGuiTreeNodeFlags_DefaultOpen))
+    //    {
+    //        changed |= ImGui::DragFloat2("Size", m_material->GetDataUniformPointer<float>("LightSize"), 0.1f);
+    //        changed |= ImGui::DragFloat("Intensity", m_material->GetDataUniformPointer<float>("LightIntensity"), 0.1f);
+    //        changed |= ImGui::ColorEdit3("Color", m_material->GetDataUniformPointer<float>("LightColor"));
 
-            ImGui::TreePop();
-        }
-    }
+    //        ImGui::TreePop();
+    //    }
+    //}
 
-    if (changed)
-    {
-        InvalidateScene();
-    }
+    //if (changed)
+    //{
+    //    InvalidateScene();
+    //}
 
-    m_imGui.EndFrame();
+    //m_imGui.EndFrame();
 }

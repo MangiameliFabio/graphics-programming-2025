@@ -3,6 +3,8 @@
 #include <memory>
 #include <vector>
 
+#include "glm/glm.hpp"
+
 class Mesh;
 class Material;
 
@@ -25,6 +27,8 @@ public:
     const Material& GetMaterial(unsigned int index) const;
 
     void SetMaterial(unsigned int index, std::shared_ptr<Material> material);
+
+    void SetMaterialID(unsigned int id);
 
     // Add a new material pointer to the list
     // Returns the index of the new material

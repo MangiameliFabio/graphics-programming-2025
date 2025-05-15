@@ -44,6 +44,11 @@ void Model::SetMaterial(unsigned int index, std::shared_ptr<Material> material)
     m_materials[index] = material;
 }
 
+void Model::SetMaterialID(const unsigned int id) 
+{
+    GetMesh().SetTriangleMaterialID(id);
+}
+
 unsigned int Model::AddMaterial(std::shared_ptr<Material> material)
 {
     unsigned int index = static_cast<unsigned int>(m_materials.size());

@@ -9,7 +9,6 @@ uniform mat4 BoxMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
 uniform vec3 BoxSize = vec3(1, 1, 1);
 
 uniform vec3 MeshColor = vec3(1, 0, 0);
-uniform mat4 MeshMatrix = mat4(1,0,0,0,   0,1,0,0,   0,0,1,0,   3,0,0,1);
 
 uniform float SphereRoughness;
 uniform float BoxRoughness;
@@ -40,6 +39,22 @@ struct Material
 	vec3 emissive;
 };
 
+struct MaterialData
+{
+	uint materialId;
+	float roughness;
+	float metalness;
+	float ior;
+	vec4 albedo;
+	vec4 emissive;
+};
+
+//layout(binding = 3, std430) readonly buffer MaterialBuffer {
+//    MaterialData Materials[];
+//};
+
+layout(binding = 4) uniform sampler2DArray textureArray;
+
 Material SphereMaterial = Material(SphereColor, SphereRoughness, SphereMetalness, /* ior */0.f, /* emissive */ vec3(0.0f));
 Material BoxMaterial = Material(BoxColor, BoxRoughness, BoxMetalness, /* ior */1.1f, /* emissive */vec3(0.0f));
 Material MeshMaterial = Material(MeshColor, MeshRoughness, MeshMetalness, /* ior */0.f, /* emissive */vec3(0.0f));
@@ -50,10 +65,10 @@ Material LightMaterial = Material(vec3(0.0f), 0.0f, 0.0f, 0.0f, /* emissive */Li
 // Forward declare ProcessOutput function
 vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material);
 
-vec4 GetColorFromTexture(sampler2D sampler, vec2 uv) {
+vec4 GetColorFromTexture(uint layer, vec2 uv) {
     uv = clamp(uv, vec2(0.0), vec2(1.0));
     
-    return texture(sampler, uv);
+    return texture(textureArray, vec3(uv, layer));
 }
 
 // Main function for casting rays: Defines the objects in the scene
@@ -89,11 +104,14 @@ vec3 CastRay(Ray ray, inout float distance)
 		material = SphereMaterial;
 	}
 
+	uint materialId;
+
 	// Mesh
-	if (RayMeshIntersection(ray, MeshMatrix, distance, normal, uvCoords))
+	if (RayMeshIntersection(ray, distance, normal, uvCoords, materialId))
 	{
-		material = MeshMaterial;
-		material.albedo *= GetColorFromTexture(BoxTexture, uvCoords).xyz;
+		material = SphereMaterial;
+		//material.metalness = Materials[materialId].metalness;
+		//material.albedo *= GetColorFromTexture(materialId, uvCoords).xyz;
 	}
 
 	// We check if normal == vec3(0) to detect if there was a hit

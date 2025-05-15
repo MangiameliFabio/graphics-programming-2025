@@ -6,6 +6,8 @@
 #include <functional>
 #include <array>
 
+class Texture2DObject;
+
 // Class to group all the properties that may affect the look of a rendered geometry
 class Material : public ShaderUniformCollection
 {
@@ -39,7 +41,6 @@ public:
     Material();
     // Initialize with the shader program, will extract all the properties. Skip the names in filtered uniforms
     Material(std::shared_ptr<ShaderProgram> shaderProgram, const NameSet& filteredUniforms = NameSet());
-
 
     // The function that will be executed for additional shader program setup
     void SetShaderSetupFunction(ShaderSetupFunction shaderSetupFunction);
@@ -173,6 +174,7 @@ private:
 
     // Blend color to use with ConstantColor or ConstantAlpha parameters. Default: white
     Color m_blendColor;
+
 };
 
 // Different conditions for depth and stencil tests

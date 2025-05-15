@@ -24,7 +24,7 @@ struct Triangle {
     glm::vec2 uv2;
 
     glm::uint materialId;
-    glm::uint padding;
+    glm::uint transformId;
 };
 
 // Class that groups several VBO, EBO and VAO that are part of the same object
@@ -133,6 +133,9 @@ public:
 
     inline const std::vector<Triangle>& GetTriangleData() const { return m_triangleData; }
     inline void SetTriangleData(const std::vector<Triangle>& data) { m_triangleData = data; }
+
+    void SetTriangleMaterialID(unsigned int id);
+    void SetTriangleTransformID(unsigned int id);
 
     // Draws a submesh
     void DrawSubmesh(int submeshIndex) const;

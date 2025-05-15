@@ -35,6 +35,22 @@ unsigned int Mesh::AddSubmesh(unsigned int vaoIndex,
     return AddSubmesh(vaoIndex, Drawcall(primitive, count, eboType, first));
 }
 
+void Mesh::SetTriangleMaterialID(unsigned int id)
+{
+	for (auto & data : m_triangleData)
+	{
+        data.materialId = id;
+	}
+}
+
+void Mesh::SetTriangleTransformID(unsigned int id)
+{
+    for (auto& data : m_triangleData)
+    {
+        data.transformId = id;
+    }
+}
+
 // Bind the VAO and render the drawcall of the submesh
 void Mesh::DrawSubmesh(int submeshIndex) const
 {
