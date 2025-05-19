@@ -171,5 +171,5 @@ vec3 ProcessOutput(Ray ray, float distance, vec3 normal, Material material)
 // Configure ray tracer
 void GetRayTracerConfig(out uint maxRays)
 {
-	maxRays = 24u;
+	maxRays = 12u;
 }

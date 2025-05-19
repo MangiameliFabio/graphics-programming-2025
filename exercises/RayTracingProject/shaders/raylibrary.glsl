@@ -154,10 +154,6 @@ bool RayMeshIntersection(Ray ray, mat4 view, inout float distance, inout vec3 no
 		vec3 v1 = triangles[i].v1.xyz;
 		vec3 v2 = triangles[i].v2.xyz;
 
-		vec2 uv0 = triangles[i].uv0;
-		vec2 uv1 = triangles[i].uv1;
-		vec2 uv2 = triangles[i].uv2;
-
 		float t, u, v;
 		if (RayTriangleIntersection(localRay.point, localRay.direction, v0, v1, v2, t, u, v) && t < distance) {
 			distance = t;
@@ -168,6 +164,16 @@ bool RayMeshIntersection(Ray ray, mat4 view, inout float distance, inout vec3 no
 			vec3 n2 = triangles[i].normal2.xyz;
 
 			vec3 localNormal = normalize(n0 * (1.0 - u - v) + n1 * u + n2 * v);
+
+			if (ray.ior != 1.0f && dot(localNormal, ray.direction) > 0.0)
+			{
+				localNormal = -localNormal;
+			}
+
+			vec2 uv0 = triangles[i].uv0;
+			vec2 uv1 = triangles[i].uv1;
+			vec2 uv2 = triangles[i].uv2;
+
 			normal = normalize((modelViewMatrix * vec4(localNormal, 0.f)).xyz);
 			uv = uv0 * (1.0 - u - v) + uv1 * u + uv2 * v;
 			material = triangles[i].materialId;

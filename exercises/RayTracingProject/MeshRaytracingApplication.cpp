@@ -24,7 +24,7 @@ MeshRaytracingApplication::MeshRaytracingApplication()
     : Application(1024, 1024, "Ray-tracing demo")
     , m_renderer(GetDevice())
     , m_frameCount(0)
-    , m_sphereCenter(0, 4, 5)
+    , m_sphereCenter(0, 4, 4)
     , m_boxMatrix(glm::translate(glm::vec3(3, 0, 0)))
     , m_meshMatrix(glm::translate(glm::vec3(0, 0, 0)))
 {
@@ -165,13 +165,13 @@ void MeshRaytracingApplication::InitializeMaterial()
     m_material->SetUniformValue("LightIntensity", 4.0f);
     m_material->SetUniformValue("LightSize", glm::vec2(3.0f));
 
-    m_materials.emplace_back(0, glm::vec4(glm::vec4(1, 0, 0,0)), 0.5f,0.f,1.1f);
+    m_materials.emplace_back(0, glm::vec4(glm::vec4(1, 0, 0,0)), 0.5f,0.f,1.35f);
 
     m_material->SetUniformValue("WallTexture", LoadTexture("models/Wall.jpg"));
     m_materials.emplace_back(1, glm::vec4(1.f), 1.f);
 
     m_material->SetUniformValue("FloorTexture", LoadTexture("models/Floor.jpg"));
-    m_materials.emplace_back(2, glm::vec4(1.f), 0.1f, 0.25f);
+    m_materials.emplace_back(2, glm::vec4(1.f), 0.0f, 1.f);
 
     m_material->SetUniformValue("MonaTexture", LoadTexture("models/Mona.jpg"));
     m_materials.emplace_back(3, glm::vec4(1.f), 1.f, 0.f);
@@ -218,7 +218,7 @@ void MeshRaytracingApplication::InitializeModels()
     // Configure loader
     ModelLoader loader(m_material);
 
-    LoadModel(loader, "models/Box.obj", 0, glm::translate(glm::vec3(1.0f, 2.3, -3)) * glm::scale(glm::vec3(0.75f)));
+    //LoadModel(loader, "models/Box.obj", 0, glm::translate(glm::vec3(1.0f, 2.3, -3)) * glm::scale(glm::vec3(0.75f)));
     LoadModel(loader, "models/Wall_East.obj", 1);
     LoadModel(loader, "models/Wall_West.obj", 1);
     LoadModel(loader, "models/Wall_South.obj", 1);

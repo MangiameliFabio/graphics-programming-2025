@@ -21,7 +21,7 @@ vec3 CastRay(Ray ray)
 void GetRayTracerConfig(out uint maxRays);
 
 // Hard limit for the number of rays. Affects performance
-const uint RayCapacity = 64u;
+const uint RayCapacity = 32u;
 Ray _PendingRays[RayCapacity];
 
 uint _RayCount = 0u;
